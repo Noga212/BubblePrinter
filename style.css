@@ -128,30 +128,30 @@ h1 {
     align-items: center;
 }
 
-input[type=range] {
-    -webkit-appearance: none;
-    appearance: none;
-    background: transparent;
-    cursor: pointer;
+/* Native Vertical Slider Support */
+writing-mode: vertical-lr;
+/* Firefox */
+direction: rtl;
+/* Puts min at bottom, max at top usually, or verify interaction */
+-webkit-appearance: slider-vertical;
+/* Chrome/Edge/Safari */
+appearance: slider-vertical;
 
-    /* Dimensions are for the HORIZONTAL state before rotation */
-    /* Dimensions are for the HORIZONTAL state before rotation */
-    width: 50vh !important;
-    /* Force length */
-    height: 40px;
-    /* Increased from 6px for larger hit area */
+background: transparent;
+cursor: pointer;
 
-    /* Rotate to make vertical */
-    transform: rotate(-90deg);
-    transform-origin: center;
+/* Dimensions swaped for native vertical */
+width: 40px;
+height: 50vh !important;
 
-    /* Fix layout focus outline */
-    outline: none;
-    margin: 0;
-    padding: 0;
-    flex-shrink: 0;
-    /* Prevent shrinking in flex container */
-}
+/* Remove rotation */
+transform: none;
+
+/* Fix layout focus outline */
+outline: none;
+margin: 0;
+padding: 0;
+flex-shrink: 0;
 
 /* Track Styling (Cura Dark Theme) */
 input[type=range]::-webkit-slider-runnable-track {
