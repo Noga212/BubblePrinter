@@ -55,14 +55,17 @@ canvas {
 
 /* Common UI Panel */
 .panel {
+    /* Restore background for visibility - REMOVED for line style */
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+
+    /* Vital for interaction */
     pointer-events: auto;
-    background: var(--bg-panel);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
-    padding: 16px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
     transition: transform 0.2s ease;
 }
 
@@ -105,14 +108,10 @@ h1 {
     gap: 20px;
 
     /* Restore background for visibility */
-    background: var(--bg-panel);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 50px;
-    /* Pill shape for slider container */
-    padding: 20px 10px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
 }
 
 /* Fix for conflicting transforms on hover */
@@ -122,14 +121,19 @@ h1 {
 
 /* Custom Slider Styles */
 /* Robust Vertical Slider using Transform */
+/* Custom Slider Styles */
+/* Robust Vertical Slider using Transform */
 .slider-wrapper {
     position: relative;
-    width: 40px;
+    width: 60px;
+    /* Increased interactive width */
     height: 50vh;
     /* Fixed height for the interactive area */
     display: flex;
     justify-content: center;
     align-items: center;
+    pointer-events: auto !important;
+    /* Vital for interaction */
 }
 
 input[type=range] {
@@ -141,8 +145,8 @@ input[type=range] {
     /* Dimensions are for the HORIZONTAL state before rotation */
     width: 50vh !important;
     /* Visual Height */
-    height: 40px;
-    /* Visual Width / Hit Area */
+    height: 60px;
+    /* Visual Width / Hit Area - Increased for easier touch */
 
     /* Rotate to make vertical */
     transform: rotate(-90deg);
@@ -153,33 +157,63 @@ input[type=range] {
     margin: 0;
     padding: 0;
     flex-shrink: 0;
-    border-radius: 50%;
-    background: var(--accent-cyan);
-    box-shadow: 0 0 10px var(--accent-cyan);
-    margin-top: -8px;
-    /* Center on track (6px track height, 20px thumb: -7px offset) */
-    border: 2px solid #fff;
+
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    pointer-events: auto !important;
 }
 
 input[type=range]:focus::-webkit-slider-runnable-track {
-    background: rgba(255, 255, 255, 0.2);
+    background: #00E5FF;
+}
+
+/* Track Styling (Thin Line) */
+input[type=range]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 2px;
+    /* Thin line */
+    background: #00E5FF;
+    /* Cyan Neon */
+    box-shadow: 0 0 8px #00E5FF;
+    border-radius: 0;
+    border: none;
+    pointer-events: auto !important;
+}
+
+/* Thumb Styling */
+input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    border: 2px solid #00E5FF;
+    box-shadow: 0 0 10px #00E5FF;
+    margin-top: -9px;
+    /* Center on 2px track */
+    pointer-events: auto !important;
+    cursor: pointer;
 }
 
 /* Firefox Support */
 input[type=range]::-moz-range-track {
     width: 100%;
-    height: 6px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
+    height: 2px;
+    background: #00E5FF;
+    box-shadow: 0 0 8px #00E5FF;
+    border-radius: 0;
+    border: none;
 }
 
 input[type=range]::-moz-range-thumb {
     height: 20px;
     width: 20px;
-    border: none;
+    border: 2px solid #00E5FF;
     border-radius: 50%;
-    background: var(--accent-cyan);
-    box-shadow: 0 0 10px var(--accent-cyan);
+    background: #FFFFFF;
+    box-shadow: 0 0 10px #00E5FF;
+    cursor: pointer;
 }
 
 /* Fallback for standard range inputs rotated if needed, 

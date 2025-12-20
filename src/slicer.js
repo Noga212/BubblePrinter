@@ -85,6 +85,9 @@ export function setupSlicer(url, scene, camera, controls) {
         slider.value = slider.max; // Should be 200
         slider.step = 1; // Ensure integer steps
 
+        // Dispatch input event so valid counter text is shown (otherwise it might say 0/200 if browser cached it)
+        slider.dispatchEvent(new Event('input'));
+
         slider.oninput = (e) => {
             const ratio = e.target.value / e.target.max; // 0 to 1
             clipPlane.constant = ratio * maxLimit;
