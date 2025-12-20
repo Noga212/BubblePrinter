@@ -62,7 +62,6 @@ uiLayer.innerHTML = `
   <div class="header panel">
     <h1>Bubble<span class="brand-accent">Printer</span></h1>
     <button class="upload-btn" id="uploadBtn">Load OBJ</button>
-    <button class="upload-btn" id="loadTestBtn" style="margin-left: 10px;">Load Test Cube</button>
     <input type="file" id="fileInput" accept=".obj" style="display: none;">
   </div>
   
@@ -90,10 +89,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
   }
 });
 
-// Load Test Model Button
-document.getElementById('loadTestBtn').addEventListener('click', () => {
-  setupSlicer('./public/models/cube_simple.obj', scene, camera, controls);
-});
+
 
 // Slider Counter Logic
 const slider = document.getElementById('sliceSlider');
