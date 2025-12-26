@@ -1,0 +1,252 @@
+:root {
+    /* Color Palette - Cura Inspired */
+    --bg-deep: #1A1A1A;
+    --bg-panel: rgba(36, 36, 36, 0.85);
+    /* Glass effect */
+    --accent-blue: #4D90FE;
+    --accent-cyan: #00E5FF;
+    --text-primary: #FFFFFF;
+    --text-muted: #B0B0B0;
+
+
+    /* Typography */
+    --font-main: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+    /* Fullscreen 3D */
+    background-color: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-main);
+    user-select: none;
+    /* App-like feel */
+}
+
+#app {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+}
+
+canvas {
+    display: block;
+    outline: none;
+}
+
+/* UI Overlay Container */
+.ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+    pointer-events: none;
+    /* Let clicks pass to canvas where no UI */
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+/* Common UI Panel */
+.panel {
+    /* Restore background for visibility - REMOVED for line style */
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+
+    /* Vital for interaction */
+    pointer-events: auto;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 8px;
+    transition: transform 0.2s ease;
+}
+
+.panel:hover {
+    transform: translateY(-2px);
+    border-color: rgba(77, 144, 254, 0.3);
+}
+
+/* Header / Top Bar */
+.header {
+    align-self: flex-start;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+}
+
+h1 {
+    font-size: 1.2rem;
+    margin: 0;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--text-primary);
+}
+
+.brand-accent {
+    color: var(--accent-cyan);
+}
+
+/* Slider Container (Right Side) */
+.slider-container {
+    position: absolute;
+    right: 30px;
+    top: 50%;
+    transform: translateY(-50%);
+    height: auto;
+    display: flex;
+    flex-direction: row;
+    /* Side by side */
+    align-items: center;
+    gap: 20px;
+
+    /* Restore background for visibility */
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+}
+
+/* Fix for conflicting transforms on hover */
+.slider-container:hover {
+    border-color: rgba(77, 144, 254, 0.3);
+}
+
+/* Custom Slider Styles */
+/* Robust Vertical Slider using Transform */
+/* Custom Slider Styles */
+/* Robust Vertical Slider using Transform */
+.slider-wrapper {
+    position: relative;
+    width: 60px;
+    /* Increased interactive width */
+    height: 50vh;
+    /* Fixed height for the interactive area */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    pointer-events: auto !important;
+    /* Vital for interaction */
+}
+
+input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+
+    /* Dimensions are for the HORIZONTAL state before rotation */
+    width: 50vh !important;
+    /* Visual Height */
+    height: 60px;
+    /* Visual Width / Hit Area - Increased for easier touch */
+
+    /* Rotate to make vertical */
+    transform: rotate(-90deg);
+    transform-origin: center;
+
+    /* Fix layout focus outline */
+    outline: none;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 0;
+
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    pointer-events: auto !important;
+}
+
+input[type=range]:focus::-webkit-slider-runnable-track {
+    background: #00E5FF;
+}
+
+/* Track Styling (Thin Line) */
+input[type=range]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 2px;
+    /* Thin line */
+    background: #00E5FF;
+    /* Cyan Neon */
+    box-shadow: 0 0 8px #00E5FF;
+    border-radius: 0;
+    border: none;
+    pointer-events: auto !important;
+}
+
+/* Thumb Styling */
+input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    border: 2px solid #00E5FF;
+    box-shadow: 0 0 10px #00E5FF;
+    margin-top: -9px;
+    /* Center on 2px track */
+    pointer-events: auto !important;
+    cursor: pointer;
+}
+
+/* Firefox Support */
+input[type=range]::-moz-range-track {
+    width: 100%;
+    height: 2px;
+    background: #00E5FF;
+    box-shadow: 0 0 8px #00E5FF;
+    border-radius: 0;
+    border: none;
+}
+
+input[type=range]::-moz-range-thumb {
+    height: 20px;
+    width: 20px;
+    border: 2px solid #00E5FF;
+    border-radius: 50%;
+    background: #FFFFFF;
+    box-shadow: 0 0 10px #00E5FF;
+    cursor: pointer;
+}
+
+/* Fallback for standard range inputs rotated if needed, 
+   but for now we'll use a wrapper if standard vertical isn't supported perfectly.
+   Let's stick to standard vertical for simplicity first, or CSS transform. */
+
+.upload-btn {
+    background: transparent;
+    border: 1px solid var(--accent-blue);
+    color: var(--accent-blue);
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    letter-spacing: 1px;
+}
+
+.upload-btn:hover {
+    background: rgba(77, 144, 254, 0.1);
+    box-shadow: 0 0 15px rgba(77, 144, 254, 0.4);
+}
+
+.slice-counter {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    color: var(--accent-cyan);
+    font-weight: 700;
+    white-space: nowrap;
+    /* Rotated text to match vertical slider */
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+}
