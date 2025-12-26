@@ -11,8 +11,15 @@ scene.background = new THREE.Color(0x1a1a1a); // Deep Void
 scene.fog = new THREE.Fog(0x1a1a1a, 20, 100);
 
 // Grid Helper (Cura Style)
-const gridHelper = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
+const gridHelper = new THREE.GridHelper(50, 50, 0x888888, 0x444444);
 scene.add(gridHelper);
+
+// Debug Cube
+const geometry = new THREE.BoxGeometry(2, 2, 2);
+const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+const cube = new THREE.Mesh(geometry, material);
+cube.position.y = 1;
+scene.add(cube);
 
 // Camera
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
