@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 
 let currentMesh = null;
 let clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0); // Cuts from top down
