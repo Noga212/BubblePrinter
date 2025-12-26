@@ -55,24 +55,7 @@ function animate() {
 }
 animate();
 
-// UI Injection (Initial)
-const uiLayer = document.createElement('div');
-uiLayer.className = 'ui-layer';
-uiLayer.innerHTML = `
-  <div class="header panel">
-    <h1>Bubble<span class="brand-accent">Printer</span></h1>
-    <button class="upload-btn" id="uploadBtn">Load OBJ</button>
-    <input type="file" id="fileInput" accept=".obj" style="display: none;">
-  </div>
-  
-  <div class="slider-container">
-    <div id="sliceCounter" class="slice-counter">Slice 200/200</div>
-    <div class="slider-wrapper">
-        <input type="range" id="sliceSlider" min="0" max="200" value="200">
-    </div>
-  </div>
-`;
-app.appendChild(uiLayer);
+
 
 // Logic placeholder for Slicer
 import { setupSlicer } from './src/slicer.js';

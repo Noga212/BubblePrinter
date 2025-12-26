@@ -9,8 +9,15 @@ export function setupSlicer(url, scene, camera, controls) {
     // Clean up previous mesh
     if (currentMesh) {
         scene.remove(currentMesh);
-        if (currentMesh.geometry) currentMesh.geometry.dispose();
-        if (currentMesh.material) currentMesh.material.dispose();
+        if (currentMesh.geometry) {
+            currentMesh.geometry.dispose();
+            currentMesh.geometry = null;
+        }
+        if (currentMesh.material) {
+            currentMesh.material.dispose();
+            currentMesh.material = null;
+        }
+        currentMesh = null;
     }
 
     loader.load(url, (object) => {
@@ -74,8 +81,6 @@ export function setupSlicer(url, scene, camera, controls) {
         controls.update();
 
 
-        // Initialize slider range based on height
-        // Initialize slider range based on mapped height
         // Initialize slider range based on mapped height
         const slider = document.getElementById('sliceSlider');
         const height = size.y * scale;
