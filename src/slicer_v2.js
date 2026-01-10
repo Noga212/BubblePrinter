@@ -11,6 +11,8 @@ let capMesh = null;
 const bottomClipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0); // Keeps Z < constant
 const topClipPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);    // Keeps Z > -constant
 const loader = new OBJLoader();
+let modelHeight = 10; // Default fallback
+
 
 /**
  * Extracts raw (x, y) coordinates of the intersection of the object with plane Z = z0.
@@ -129,6 +131,7 @@ export function setupSlicer(url, scene, camera, controls) {
         // Then we add half of the NEW height to lift the bottom to Z=0
         object.position.z += newSize.z / 2;
 
+        modelHeight = newSize.z;
         console.log('Model aligned. Height:', newSize.z);
 
         // Visual Box Helper disabled
@@ -337,4 +340,25 @@ function drawSliceToCanvas(ctx, polygons, width, height) {
     }
     ctx.fill();
     ctx.stroke();
+}
+
+export function getModelHeight() {
+    return modelHeight;
+}
+
+export function updateSliceSettings(layerCount) {
+    const slider = document.getElementById('sliceSlider');
+    const counter = document.getElementById('sliceCounter');
+
+    // Update Slider
+    slider.max = layerCount;
+    slider.value = layerCount; // Reset to top
+
+    // Trigger update
+    slider.dispatchEvent(new Event('input'));
+
+    // Update Counter Text immediately
+    if (counter) {
+        counter.textContent = `Slice ${layerCount}/${layerCount}`;
+    }
 }

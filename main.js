@@ -59,7 +59,7 @@ animate();
 
 
 // Logic placeholder for Slicer
-import { setupSlicer } from './src/slicer_v2.js';
+import { setupSlicer, getModelHeight, updateSliceSettings } from './src/slicer_v2.js';
 
 // Event Listeners for UI
 document.getElementById('uploadBtn').addEventListener('click', () => {
@@ -80,5 +80,62 @@ const slider = document.getElementById('sliceSlider');
 const counter = document.getElementById('sliceCounter');
 
 slider.addEventListener('input', (e) => {
-  counter.textContent = `Slice ${e.target.value}/200`;
+  counter.textContent = `Slice ${e.target.value}/${slider.max}`;
+});
+
+
+// --- Adjust Settings Modal Logic ---
+const adjustBtn = document.getElementById('adjustBtn');
+const settingsModal = document.getElementById('layerSettingsModal');
+const cancelSettingsBtn = document.getElementById('cancelSettingsBtn');
+const applySettingsBtn = document.getElementById('applySettingsBtn');
+
+const layerCountInput = document.getElementById('layerCountInput');
+const layerHeightInput = document.getElementById('layerHeightInput');
+
+// Open Modal
+adjustBtn.addEventListener('click', () => {
+  console.log('Adjust button clicked');
+  // Sync current values (approximate if needed, but we start with defaults)
+  const currentMax = slider.max;
+  const height = getModelHeight();
+
+  layerCountInput.value = currentMax;
+  // Calc layer height: Total Height / Count
+  const lh = height / currentMax;
+  layerHeightInput.value = lh.toFixed(3); // 3 decimals for precision
+
+  settingsModal.style.display = 'flex';
+});
+
+// Close Modal
+const closeModal = () => {
+  settingsModal.style.display = 'none';
+};
+cancelSettingsBtn.addEventListener('click', closeModal);
+
+// Sync Inputs
+layerCountInput.addEventListener('input', () => {
+  const count = parseInt(layerCountInput.value) || 1;
+  const height = getModelHeight();
+  const newLayerHeight = height / count;
+  layerHeightInput.value = newLayerHeight.toFixed(3);
+});
+
+layerHeightInput.addEventListener('input', () => {
+  const lh = parseFloat(layerHeightInput.value) || 0.1;
+  const height = getModelHeight();
+  const newCount = Math.round(height / lh);
+  layerCountInput.value = newCount;
+});
+
+// Apply Settings
+applySettingsBtn.addEventListener('click', () => {
+  const newCount = parseInt(layerCountInput.value);
+  if (newCount > 0) {
+    updateSliceSettings(newCount);
+    closeModal();
+  } else {
+    alert("Layer count must be greater than 0");
+  }
 });

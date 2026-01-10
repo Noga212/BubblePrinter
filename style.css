@@ -232,6 +232,7 @@ input[type=range]::-moz-range-thumb {
     text-transform: uppercase;
     font-size: 0.8rem;
     letter-spacing: 1px;
+    pointer-events: auto;
 }
 
 .upload-btn:hover {
@@ -278,4 +279,128 @@ input[type=range]::-moz-range-thumb {
     background: rgba(0, 0, 0, 0.5);
     border: 1px solid #333;
     border-radius: 4px;
+}
+
+/* Modal Styles */
+.modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    pointer-events: auto;
+}
+
+.modal-content {
+    background: rgba(30, 30, 30, 0.9);
+    border: 1px solid var(--accent-cyan);
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 0 40px rgba(0, 229, 255, 0.2);
+    display: flex;
+    flex-direction: column;
+    gap: 25px;
+    min-width: 400px;
+}
+
+.modal-content h2 {
+    margin: 0;
+    text-align: center;
+    color: var(--text-primary);
+    font-size: 1.4rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.modal-body {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.input-group input {
+    width: 120px;
+    height: 120px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 2px solid var(--accent-cyan);
+    border-radius: 12px;
+    color: var(--accent-cyan);
+    font-family: var(--font-mono);
+    font-size: 2.5rem;
+    text-align: center;
+    outline: none;
+    transition: all 0.3s ease;
+}
+
+.input-group input:focus {
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.3);
+    background: rgba(0, 229, 255, 0.05);
+}
+
+.input-group label {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 10px;
+}
+
+.primary-btn,
+.secondary-btn {
+    padding: 10px 24px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 1rem;
+    border: none;
+    transition: all 0.2s;
+}
+
+.primary-btn {
+    background: var(--accent-cyan);
+    color: #000;
+    box-shadow: 0 0 15px rgba(0, 229, 255, 0.3);
+}
+
+.primary-btn:hover {
+    background: #fff;
+    box-shadow: 0 0 25px rgba(0, 229, 255, 0.6);
+}
+
+.secondary-btn {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--text-muted);
+}
+
+.secondary-btn:hover {
+    color: #fff;
+    border-color: #fff;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* Chrome/Safari/Edge input spinner removal */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
 }
