@@ -95,7 +95,6 @@ const layerHeightInput = document.getElementById('layerHeightInput');
 
 // Open Modal
 adjustBtn.addEventListener('click', () => {
-  console.log('Adjust button clicked');
   // Sync current values (approximate if needed, but we start with defaults)
   const currentMax = slider.max;
   const height = getModelHeight();
