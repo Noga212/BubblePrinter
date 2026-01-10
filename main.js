@@ -1,29 +1,31 @@
-
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // DOM Elements
 const app = document.querySelector('#app');
 
+// Z-Up setup is handled by camera.up in scene setup
+
 // Scene Setup
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1a1a); // Deep Void
-scene.fog = new THREE.Fog(0x1a1a1a, 20, 100);
 
 // Grid Helper (Cura Style)
-const gridHelper = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
+const gridHelper = new THREE.GridHelper(50, 50, 0x008800, 0x444444); // Bright Green/Gray
+gridHelper.rotation.x = Math.PI / 2; // Rotate to XY plane
 scene.add(gridHelper);
 
 // Camera
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(10, 10, 10);
+camera.position.set(20, -20, 20); // Better angle for Z-up
+camera.up.set(0, 0, 1); // Z is up
 camera.lookAt(0, 0, 0);
 
 // Renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
-renderer.localClippingEnabled = true; // Crucial for slicing!
+renderer.localClippingEnabled = true; // Use visual clipping
 app.appendChild(renderer.domElement);
 
 // Controls
@@ -57,7 +59,7 @@ animate();
 
 
 // Logic placeholder for Slicer
-import { setupSlicer } from './src/slicer.js';
+import { setupSlicer } from './src/slicer_v2.js';
 
 // Event Listeners for UI
 document.getElementById('uploadBtn').addEventListener('click', () => {
