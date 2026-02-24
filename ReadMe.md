@@ -12,8 +12,10 @@ The first phase of development involved building a web-based slicer that can pro
 Unlike standard slicers, this tool handles the unique geometry and trajectories required to "print" with inflated plastic.
 
 ## Sample Models for Testing
-You can download these sample OBJ models to test the slicer:
+You can download these sample OBJ models to test the slicer. 
+**Note:** To download, **Right-click** on a link and select **"Save Link As..."**.
 
+*   [**Cube**](https://raw.githubusercontent.com/Noga212/BubblePrinter/main/models/cube_simple.obj) - Simple 6-sided primitive.
 *   [**Pyramid**](https://raw.githubusercontent.com/Noga212/BubblePrinter/main/models/pyramid.obj) - Sharp vertices and sloped flat faces.
 *   [**Cone**](https://raw.githubusercontent.com/Noga212/BubblePrinter/main/models/cone_smooth.obj) - Smooth circular base and conical surface.
 *   [**Cylinder**](https://raw.githubusercontent.com/Noga212/BubblePrinter/main/models/cylinder.obj) - Vertical walls and flat caps.
