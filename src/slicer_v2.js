@@ -4,14 +4,18 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { getSliceContours } from './geometry_utils_v2.js';
 
 let currentMesh = null;
+let originalMesh = null; // Store original loaded mesh
+let activeSliceTarget = null; // Mesh to be sliced (can be separate from loaded mesh)
 let sliceGroup = new THREE.Group(); // Container for slice contours
 let debugGroup = new THREE.Group(); // Container for debug visuals
 let ghostMesh = null;
 let capMesh = null;
+let useCaps = true; // State for cap rendering
 const bottomClipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0); // Keeps Z < constant
 const topClipPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);    // Keeps Z > -constant
 const loader = new OBJLoader();
-let modelHeight = 10; // Default fallback
+let modelHeight = 10; // Dynamic current height
+let originalModelHeight = 10; // Saved original height
 
 
 /**
@@ -100,6 +104,7 @@ export function setupSlicer(url, scene, camera, controls) {
         currentMesh = null;
         ghostMesh = null;
         capMesh = null;
+        useCaps = true; // Reset to default
     }
 
     sliceGroup = new THREE.Group();
@@ -132,14 +137,13 @@ export function setupSlicer(url, scene, camera, controls) {
         object.position.z += newSize.z / 2;
 
         modelHeight = newSize.z;
+        originalModelHeight = newSize.z;
         console.log('Model aligned. Height:', newSize.z);
 
         // Visual Box Helper disabled
         // const boxHelper = new THREE.BoxHelper(object, 0xffff00);
         // debugGroup.add(boxHelper);
 
-        // Apply styles to materials
-        console.log('Starting traversal for material application...');
         // Apply styles to materials
         console.log('Starting traversal for material application...');
         object.traverse((child) => {
@@ -161,6 +165,7 @@ export function setupSlicer(url, scene, camera, controls) {
         });
 
         currentMesh = object;
+        originalMesh = object; // Save reference
         scene.add(object);
 
         // CREATE GHOST OBJECT (Top Half)
@@ -202,7 +207,7 @@ export function setupSlicer(url, scene, camera, controls) {
 
         slider.oninput = (e) => {
             const ratio = e.target.value / e.target.max; // 0 to 1
-            const z0 = ratio * maxLimit;
+            const z0 = ratio * modelHeight; // Use dynamic modelHeight!
 
             // Update clipping planes
             // Bottom keeps < z0.
@@ -223,25 +228,42 @@ export function setupSlicer(url, scene, camera, controls) {
             //     slicePlaneMesh.position.set(0, 0, z0);
             // }
 
+            // Ensure matrices are up to date before slicing
+            currentMesh.updateMatrixWorld(true);
+
             // Real Geometric Slicing - Returns array of arrays of points
-            const polygons = getSliceContours(currentMesh, z0);
+            const target = activeSliceTarget || currentMesh;
+            if (activeSliceTarget) {
+                target.updateMatrixWorld(true);
+            }
+
+            // Debug / UI Update
+            const typeLabel = document.querySelector('.slice-preview-panel h3');
+            if (typeLabel) {
+                typeLabel.textContent = activeSliceTarget ? '2D Slice Preview (Bubbles)' : '2D Slice Preview (Original)';
+            }
+
+            console.log(`[Slicer] Slicing target: ${activeSliceTarget ? 'BubbleMesh' : 'OriginalMesh'} at Z=${z0.toFixed(2)}`);
+            const polygons = getSliceContours(target, z0);
 
             if (polygons.length > 0) {
-                // 1. Draw Contours (Blue Line)
-                polygons.forEach(polygon => {
-                    const points = polygon.map(p => new THREE.Vector3(p[0], p[1], z0));
-                    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-                    // Thick blue line, always on top
-                    const material = new THREE.LineBasicMaterial({
-                        color: 0x00E5FF,
-                        linewidth: 2,
-                        depthTest: false,
-                        depthWrite: false
+                // 1. Draw Contours (Blue Line) - Only if caps enabled (or make a separate setting? For now link to caps)
+                if (useCaps) {
+                    polygons.forEach(polygon => {
+                        const points = polygon.map(p => new THREE.Vector3(p[0], p[1], z0));
+                        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                        // Thick blue line, always on top
+                        const material = new THREE.LineBasicMaterial({
+                            color: 0x00E5FF,
+                            linewidth: 2,
+                            depthTest: false,
+                            depthWrite: false
+                        });
+                        const line = new THREE.LineLoop(geometry, material);
+                        line.renderOrder = 999; // Ensure it draws last
+                        sliceGroup.add(line);
                     });
-                    const line = new THREE.LineLoop(geometry, material);
-                    line.renderOrder = 999; // Ensure it draws last
-                    sliceGroup.add(line);
-                });
+                }
 
                 // 2. Generate Cap Mesh (Highlighted Plane)
                 const shapes = [];
@@ -258,7 +280,7 @@ export function setupSlicer(url, scene, camera, controls) {
                     }
                 });
 
-                if (shapes.length > 0) {
+                if (useCaps && shapes.length > 0) {
                     const capGeo = new THREE.ShapeGeometry(shapes);
                     const capMat = new THREE.MeshBasicMaterial({
                         color: 0x00E5FF, // Cyan glow
@@ -362,3 +384,167 @@ export function updateSliceSettings(layerCount) {
         counter.textContent = `Slice ${layerCount}/${layerCount}`;
     }
 }
+
+
+
+export function getCurrentMesh() {
+    return currentMesh;
+}
+
+export function getOriginalMesh() {
+    return originalMesh;
+}
+
+export function getClippingPlanes() {
+    return [bottomClipPlane, topClipPlane];
+}
+
+export function restoreOriginalGeometry(scene) {
+    if (!originalMesh) {
+        console.warn("No original mesh to restore.");
+        return;
+    }
+    console.log("Restoring original mesh...");
+
+    // remove current (bubbles)
+    if (currentMesh) {
+        scene.remove(currentMesh);
+        // dont dispose geometry if it's the original!
+        if (currentMesh !== originalMesh && currentMesh.geometry) {
+            // If it's bubbles, we can dispose. 
+            // But we need to know if currentMesh IS originalMesh.
+            // If we switched currentMesh to point to a new Mesh(bubbleGeo), then it's distinct.
+            currentMesh.geometry.dispose();
+        }
+    }
+    if (ghostMesh) {
+        scene.remove(ghostMesh);
+        if (ghostMesh.geometry) ghostMesh.geometry.dispose();
+    }
+
+    // Restore Original
+    currentMesh = originalMesh;
+    modelHeight = originalModelHeight; // Restore height
+    scene.add(currentMesh);
+
+    // Re-create ghost for original? 
+    // The original loader created a ghostMesh, but we probably lost reference or disposed it if we ran setTargetGeometry.
+    // Actually setTargetGeometry disposes ghostMesh.
+    // So we need to recreate Ghost for original.
+
+    ghostMesh = originalMesh.clone();
+    ghostMesh.traverse((child) => {
+        if (child.isMesh) {
+            child.material = new THREE.MeshBasicMaterial({
+                color: 0x888888,
+                transparent: true,
+                opacity: 0.15,
+                side: THREE.DoubleSide,
+                clippingPlanes: [topClipPlane],
+                depthWrite: false,
+            });
+            child.castShadow = false;
+            child.receiveShadow = false;
+        }
+    });
+    scene.add(ghostMesh);
+
+    setSliceTarget(currentMesh);
+}
+
+/**
+ * Sets a generic geometry as the main slice target.
+ * Replaces the loaded OBJ visualization with this geometry.
+ * @param {THREE.BufferGeometry} geometry 
+ * @param {THREE.Scene} scene 
+ * @param {boolean} renderCaps 
+ */
+export function setTargetGeometry(geometry, scene, renderCaps = true) {
+    if (!geometry) {
+        console.error("setTargetGeometry called with null geometry");
+        return;
+    }
+
+    console.log("[Slicer] Setting target geometry (Bubbles)...");
+
+    // 1. Cleanup existing currentMesh
+    if (currentMesh) {
+        scene.remove(currentMesh);
+        if (currentMesh.geometry && currentMesh !== originalMesh) {
+            currentMesh.geometry.dispose();
+        }
+    }
+    if (ghostMesh) {
+        scene.remove(ghostMesh);
+        if (ghostMesh.geometry) ghostMesh.geometry.dispose();
+    }
+
+    // 2. Create Solid Mesh (Bottom)
+    // Ensure normals are computed for Phong material
+    if (!geometry.attributes.normal) {
+        geometry.computeVertexNormals();
+    }
+
+    const material = new THREE.MeshPhongMaterial({
+        color: 0xffaa00, // Orange
+        emissive: 0x222222,
+        specular: 0x111111,
+        shininess: 30,
+        side: THREE.DoubleSide,
+        flatShading: true,
+        clippingPlanes: [bottomClipPlane],
+        clipShadows: true
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    currentMesh = mesh;
+    scene.add(mesh);
+
+    // 3. Create Ghost Mesh (Top/Ghost)
+    // We clone the geometry for the ghost to avoid shared state issues if we need them separate (though referencing same geo is usually fine, cloning is safer for disposal logic)
+    // ACTUALLY: Cloning geometry is expensive. Let's reuse if possible, or shallow clone.
+    // But `setTargetGeometry` passed a fresh `bubbleGeo`.
+    // Let's use the same geometry but different material.
+    const ghostMat = new THREE.MeshBasicMaterial({
+        color: 0xababab, // Slightly lighter grey
+        transparent: true,
+        opacity: 0.15,
+        side: THREE.DoubleSide,
+        clippingPlanes: [topClipPlane],
+        depthWrite: false, // Important for ghosts
+    });
+
+    // Reuse geometry?
+    ghostMesh = new THREE.Mesh(geometry, ghostMat);
+    scene.add(ghostMesh);
+    console.log("[Slicer] Ghost Mesh created and added.");
+
+    // Update Height logic
+    geometry.computeBoundingBox();
+    if (geometry.boundingBox) {
+        modelHeight = geometry.boundingBox.max.z;
+        console.log("Updated modelHeight for bubbles:", modelHeight);
+    }
+
+    // 4. Update Slice Target
+    useCaps = renderCaps; // Update state
+    setSliceTarget(currentMesh);
+}
+
+export function setSliceTarget(mesh) {
+    activeSliceTarget = mesh;
+    console.log("[Slicer] setSliceTarget called. Mesh present?", !!mesh);
+
+    // Force update of the slider to apply clipping planes to the new materials immediately
+    const slider = document.getElementById('sliceSlider');
+    if (slider) {
+        // We need to make sure the slider reflects the current height physically or logically?
+        // The slider max is set by layer count usually, but the clipping logic relies on slider.value/max * modelHeight.
+        // We just trigger input to re-run the plane updates.
+        slider.dispatchEvent(new Event('input'));
+    }
+}
+
