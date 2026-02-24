@@ -240,7 +240,8 @@ export function setupSlicer(url, scene, camera, controls) {
             // Debug / UI Update
             const typeLabel = document.querySelector('.slice-preview-panel h3');
             if (typeLabel) {
-                typeLabel.textContent = activeSliceTarget ? '2D Slice Preview (Bubbles)' : '2D Slice Preview (Original)';
+                const isBubbles = activeSliceTarget && activeSliceTarget !== originalMesh;
+                typeLabel.textContent = isBubbles ? '2D Slice Preview (Bubbles)' : '2D Slice Preview (Original)';
             }
 
             console.log(`[Slicer] Slicing target: ${activeSliceTarget ? 'BubbleMesh' : 'OriginalMesh'} at Z=${z0.toFixed(2)}`);
