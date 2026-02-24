@@ -27,9 +27,11 @@ export class BubbleGenerator {
         const minZ = box.min.z;
         const maxZ = box.max.z;
 
-        // Calculate layer step based on overlap
+        // Calculate layer step based on overlap. 
+        // 0% overlap -> bubbles touch (distance = 2 * radius).
+        // 50% overlap -> centers are 1 radius apart.
         const overlapFactor = 1 - (overlapPercent / 100);
-        const layerStep = radius * overlapFactor;
+        const layerStep = (radius * 2) * overlapFactor;
 
         // thetaLength = PI  → full sphere (0% flatten)
         // thetaLength = PI/2 → top hemisphere only (50% flatten) — flat face at minZ+radius
@@ -103,14 +105,17 @@ export class BubbleGenerator {
      */
     getGridPointsInContours(contours, box, spacing) {
         const points = [];
-        // Grid bounds
-        const startX = Math.floor(box.min.x / spacing) * spacing;
-        const endX = Math.ceil(box.max.x / spacing) * spacing;
-        const startY = Math.floor(box.min.y / spacing) * spacing;
-        const endY = Math.ceil(box.max.y / spacing) * spacing;
 
-        for (let x = startX; x <= endX; x += spacing) {
-            for (let y = startY; y <= endY; y += spacing) {
+        // Align the grid to the world origin (0,0) instead of the box.min.
+        // This ensures that even if the bounding box fluctuates slightly between layers 
+        // due to precision, the sample points remain perfectly vertical.
+        // We start sampling from a floor multiple of spacing, then offset by half-spacing
+        // to ensure we are at the center of the bubble.
+        const startX = Math.floor(box.min.x / spacing) * spacing + (spacing / 2);
+        const startY = Math.floor(box.min.y / spacing) * spacing + (spacing / 2);
+
+        for (let x = startX; x <= box.max.x + spacing; x += spacing) {
+            for (let y = startY; y <= box.max.y + spacing; y += spacing) {
                 // Check if (x,y) is inside any contour
                 if (this.isPointInContours(x, y, contours)) {
                     points.push({ x, y });
