@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // Slicer & Bubble Generator
 import { setupSlicer, getModelHeight, updateSliceSettings, getCurrentMesh, getOriginalMesh, getClippingPlanes, setSliceTarget, setTargetGeometry, restoreOriginalGeometry } from './src/slicer_v2.js';
-import { BubbleGenerator } from './src/bubble_generator.js?v=2';
+import { BubbleGenerator } from './src/bubble_generator.js?v=3';
 
 // DOM Elements
 const app = document.querySelector('#app');
