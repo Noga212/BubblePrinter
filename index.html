@@ -42,6 +42,40 @@
         </div>
       </div>
 
+      <!-- Bubble Mode Panel -->
+      <div class="bubble-panel panel">
+        <div class="panel-header">
+          <h3>Bubble Mode</h3>
+          <label class="switch">
+            <input type="checkbox" id="bubbleModeToggle">
+            <span class="slider round"></span>
+          </label>
+        </div>
+
+        <div id="bubbleSettings" class="bubble-settings" style="display: none;">
+          <div class="setting-row">
+            <label>Size:</label>
+            <input type="number" id="bubbleSizeInput" min="0.01" max="2.0" step="0.01" value="0.5" class="value-input">
+            <span>mm</span>
+          </div>
+          <input type="range" id="bubbleSizeSlider" min="0.01" max="2.0" step="0.01" value="0.5"
+            class="horizontal-slider">
+          <div class="setting-row">
+            <label>Overlap:</label>
+            <input type="number" id="bubbleOverlapInput" min="0" max="70" step="1" value="0" class="value-input">
+            <span>%</span>
+          </div>
+          <input type="range" id="bubbleOverlapSlider" min="0" max="70" step="1" value="0" class="horizontal-slider">
+          <div class="setting-row">
+            <label>Base Flatten:</label>
+            <input type="number" id="baseFlattenInput" min="0" max="100" step="1" value="50" class="value-input">
+            <span>%</span>
+          </div>
+          <input type="range" id="baseFlattenSlider" min="0" max="100" step="1" value="50" class="horizontal-slider">
+          <button id="regenerateBubblesBtn" class="action-btn">Refresh</button>
+        </div>
+      </div>
+
       <!-- Layer Settings Modal -->
       <div id="layerSettingsModal" class="modal-overlay" style="display: none;">
         <div class="modal-content panel">
@@ -65,7 +99,7 @@
     </div>
   </div>
   <link rel="stylesheet" href="./style.css">
-  <script type="module" src="./main.js?v=15"></script>
+  <script type="module" src="./main.js?v=18"></script>
 </body>
 
 </html>
