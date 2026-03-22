@@ -12,87 +12,82 @@ export class BubbleGenerator {
      * Generates a merged BufferGeometry of bubbles based on the input mesh.
      * @param {THREE.Object3D} mesh - The reference mesh to voxelize
      * @param {number} radius - Radius of bubbles
-     * @param {number} overlapPercent - Overlap percentage (0-70)
+     * @param {number} overlapV - Vertical overlap percentage (0-70)
+     * @param {number} overlapH - Horizontal overlap percentage (0-70)
      * @param {number} baseFlattenPercent - How much of the first layer spheres is flattened (0-100)
      * @returns {THREE.BufferGeometry|null}
      */
-    generateGeometry(mesh, radius, overlapPercent = 0, baseFlattenPercent = 50) {
-        console.log(`[BubbleGenerator] Generating geometry radius ${radius}, overlap ${overlapPercent}%, baseFlatten ${baseFlattenPercent}%...`);
+    generateGeometry(mesh, radius, overlapV = 0, overlapH = 0, baseFlattenPercent = 50) {
+        console.log(`[BubbleGenerator] Generating Version 24 (Absolute Stability): radius ${radius}, overlapV ${overlapV}%, overlapH ${overlapH}%, baseFlatten ${baseFlattenPercent}%`);
         this.bubbleSize = radius;
 
         const geometries = [];
 
         // 1. Calculate Bounds
+        mesh.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(mesh);
         const minZ = box.min.z;
         const maxZ = box.max.z;
 
-        // Calculate layer step based on overlap. 
-        // 0% overlap -> bubbles touch (distance = 2 * radius).
-        // 50% overlap -> centers are 1 radius apart.
-        const overlapFactor = 1 - (overlapPercent / 100);
-        const layerStep = (radius * 2) * overlapFactor;
+        // Calculate steps based on overlap
+        const overlapFactorV = 1 - (overlapV / 100);
+        const layerStep = (radius * 2) * overlapFactorV;
 
-        // thetaLength = PI  → full sphere (0% flatten)
-        // thetaLength = PI/2 → top hemisphere only (50% flatten) — flat face at minZ+radius
-        // thetaLength = 0   → nothing (100% flatten)
-        //
-        // How much to sink the entire bubble structure into the floor (minZ).
-        // 0% -> 0 sink (full spheres resting on bed at single point).
-        // 100% -> radius sink (hemispheres resting flat on bed).
-        // We clamp it between 0 and 100 to avoid cutting above equator.
-        const clampFlatten = Math.max(0, Math.min(100, baseFlattenPercent));
-        const flattenOffset = radius * (clampFlatten / 100);
+        const overlapFactorH = 1 - (overlapH / 100);
+        const horizontalStep = (radius * 2) * overlapFactorH;
 
-        // Calculate where to cut Layer 0 so it sits perfectly flat at exactly minZ.
-        // -radius is the South Pole. + flattenOffset pushes the cut line up.
-        const cosTheta = (-radius + flattenOffset) / radius;
-        const thetaLength = Math.acos(cosTheta);
+        // Base Flattening Logic:
+        const thetaLength = Math.PI * (1 - (Math.max(0, Math.min(100, baseFlattenPercent)) / 100));
 
-        console.log(`[BubbleGenerator] baseFlatten=${baseFlattenPercent}%, offset=${flattenOffset.toFixed(3)}, thetaLength=${thetaLength.toFixed(3)}`);
+        // Calculate the base translation so the cut face sits exactly at minZ.
+        const baseZOffset = - (radius * Math.cos(thetaLength));
+        const centerZ0 = minZ + baseZOffset;
+
+        console.log(`[BubbleGenerator] baseFlatten=${baseFlattenPercent}%, centerZ0=${centerZ0.toFixed(3)}`);
 
         let layerIndex = 0;
-        // Start slightly above minZ so the slice edge-crossing test finds valid contours.
-        // Slicing at *exactly* minZ returns nothing for flat-bottomed models because
-        // no edge strictly crosses that plane — every bottom vertex sits exactly on it.
-        let currentZ = minZ + radius * 0.01;
 
-        // Loop...
-        while (currentZ <= maxZ) {
-            const contours = getSliceContours(mesh, currentZ);
+        // Loop until we reach the top of the model
+        while (true) {
+            const centerZ = centerZ0 + layerIndex * layerStep;
+
+            // If the bottom of the current bubble is above maxZ, we stop.
+            if (centerZ - radius > maxZ) break;
+
+            // Define a sampling height for the mesh contours.
+            // We sample at centerZ, but clamp it to be slightly inside the mesh bounds.
+            let sampleZ = Math.min(maxZ - 0.01, Math.max(minZ + 0.01, centerZ));
+
+            const contours = getSliceContours(mesh, sampleZ);
 
             if (contours.length > 0) {
-                const points = this.getGridPointsInContours(contours, box, radius * 2);
+                const points = this.getGridPointsInContours(contours, box, horizontalStep);
 
                 points.forEach(p => {
-                    const matrix = new THREE.Matrix4();
-
-                    // Shift the ENTIRE bubble structure down uniformly by flattenOffset
-                    const centerZ = (minZ + radius) + layerIndex * layerStep - flattenOffset;
-
-                    matrix.makeTranslation(p.x, p.y, centerZ);
+                    const matrix = new THREE.Matrix4().makeTranslation(p.x, p.y, centerZ);
 
                     let geo;
                     if (layerIndex === 0) {
-                        // Partial sphere: from north pole down by thetaLength.
-                        // After rotateX(PI/2), pole = +Z, flat cut faces downward.
                         geo = new THREE.SphereGeometry(radius, 16, 12, 0, Math.PI * 2, 0, thetaLength);
-                        geo.rotateX(Math.PI / 2);
                     } else {
                         geo = new THREE.SphereGeometry(radius, 16, 12);
                     }
 
+                    // Rotate ALL spheres so poles are on the Z axis (Vertical).
+                    geo.rotateX(Math.PI / 2);
+
                     geometries.push(geo.clone().applyMatrix4(matrix));
                 });
             }
-            currentZ += layerStep;
+
             layerIndex++;
+            // Safety break
+            if (layerIndex > 700) break;
         }
 
         if (geometries.length > 0) {
-            console.log(`[BubbleGenerator] Merging ${geometries.length} bubbles across ${layerIndex} layers.`);
-            const mergedGeo = BufferGeometryUtils.mergeGeometries(geometries);
-            return mergedGeo;
+            console.log(`[BubbleGenerator] Merged ${geometries.length} bubbles.`);
+            return BufferGeometryUtils.mergeGeometries(geometries);
         } else {
             console.warn('[BubbleGenerator] No bubbles generated.');
             return null;
@@ -102,20 +97,23 @@ export class BubbleGenerator {
 
     /**
      * Returns grid points (x, y) that are inside the contours.
+     * Truly absolute world-grid anchored at (0,0).
      */
     getGridPointsInContours(contours, box, spacing) {
         const points = [];
 
-        // Align the grid to the world origin (0,0) instead of the box.min.
-        // This ensures that even if the bounding box fluctuates slightly between layers 
-        // due to precision, the sample points remain perfectly vertical.
-        // We start sampling from a floor multiple of spacing, then offset by half-spacing
-        // to ensure we are at the center of the bubble.
-        const startX = Math.floor(box.min.x / spacing) * spacing + (spacing / 2);
-        const startY = Math.floor(box.min.y / spacing) * spacing + (spacing / 2);
+        // Find the range of indices 'n' that cover the bounding box relative to (0,0).
+        const startN = Math.floor((box.min.x - (spacing / 2)) / spacing);
+        const endN = Math.ceil((box.max.x - (spacing / 2)) / spacing);
 
-        for (let x = startX; x <= box.max.x + spacing; x += spacing) {
-            for (let y = startY; y <= box.max.y + spacing; y += spacing) {
+        const startM = Math.floor((box.min.y - (spacing / 2)) / spacing);
+        const endM = Math.ceil((box.max.y - (spacing / 2)) / spacing);
+
+        for (let n = startN; n <= endN; n++) {
+            const x = n * spacing + (spacing / 2);
+            for (let m = startM; m <= endM; m++) {
+                const y = m * spacing + (spacing / 2);
+
                 // Check if (x,y) is inside any contour
                 if (this.isPointInContours(x, y, contours)) {
                     points.push({ x, y });

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 // Ensure output directory exists
-const outputDir = path.resolve('./public/models');
+const outputDir = path.resolve('./models');
 if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
 }
@@ -66,3 +66,27 @@ console.log('Generated sphere_smooth.obj');
 const torusGeo = new THREE.TorusKnotGeometry(5, 1.5, 128, 32);
 fs.writeFileSync(path.join(outputDir, 'torus_complex.obj'), geometryToOBJ(torusGeo, 'TorusKnot'));
 console.log('Generated torus_complex.obj');
+// 4. Pyramid (Cone with 4 segments)
+const pyramidGeo = new THREE.ConeGeometry(10, 15, 4);
+fs.writeFileSync(path.join(outputDir, 'pyramid.obj'), geometryToOBJ(pyramidGeo, 'Pyramid'));
+console.log('Generated pyramid.obj');
+
+// 5. Smooth Cone
+const coneGeo = new THREE.ConeGeometry(10, 15, 32);
+fs.writeFileSync(path.join(outputDir, 'cone_smooth.obj'), geometryToOBJ(coneGeo, 'Cone'));
+console.log('Generated cone_smooth.obj');
+
+// 6. Cylinder
+const cylinderGeo = new THREE.CylinderGeometry(7, 7, 15, 32);
+fs.writeFileSync(path.join(outputDir, 'cylinder.obj'), geometryToOBJ(cylinderGeo, 'Cylinder'));
+console.log('Generated cylinder.obj');
+
+// 7. Octahedron
+const octahedronGeo = new THREE.OctahedronGeometry(10);
+fs.writeFileSync(path.join(outputDir, 'octahedron.obj'), geometryToOBJ(octahedronGeo, 'Octahedron'));
+console.log('Generated octahedron.obj');
+
+// 8. Tetrahedron
+const tetrahedronGeo = new THREE.TetrahedronGeometry(10);
+fs.writeFileSync(path.join(outputDir, 'tetrahedron.obj'), geometryToOBJ(tetrahedronGeo, 'Tetrahedron'));
+console.log('Generated tetrahedron.obj');

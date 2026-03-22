@@ -61,11 +61,18 @@
           <input type="range" id="bubbleSizeSlider" min="0.01" max="2.0" step="0.01" value="0.5"
             class="horizontal-slider">
           <div class="setting-row">
-            <label>Overlap:</label>
-            <input type="number" id="bubbleOverlapInput" min="0" max="70" step="1" value="0" class="value-input">
+            <label>Vertical Overlap:</label>
+            <input type="number" id="bubbleOverlapVInput" min="0" max="70" step="1" value="0" class="value-input">
             <span>%</span>
           </div>
-          <input type="range" id="bubbleOverlapSlider" min="0" max="70" step="1" value="0" class="horizontal-slider">
+          <input type="range" id="bubbleOverlapVSlider" min="0" max="70" step="1" value="0" class="horizontal-slider">
+
+          <div class="setting-row">
+            <label>Horizontal Overlap:</label>
+            <input type="number" id="bubbleOverlapHInput" min="0" max="70" step="1" value="0" class="value-input">
+            <span>%</span>
+          </div>
+          <input type="range" id="bubbleOverlapHSlider" min="0" max="70" step="1" value="0" class="horizontal-slider">
           <div class="setting-row">
             <label>Base Flatten:</label>
             <input type="number" id="baseFlattenInput" min="0" max="100" step="1" value="50" class="value-input">
@@ -99,7 +106,7 @@
     </div>
   </div>
   <link rel="stylesheet" href="./style.css">
-  <script type="module" src="./main.js?v=18"></script>
+  <script type="module" src="./main.js?v=24"></script>
 </body>
 
 </html>
