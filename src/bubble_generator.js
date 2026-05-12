@@ -17,8 +17,8 @@ export class BubbleGenerator {
      * @param {number} baseFlattenPercent - How much of the first layer spheres is flattened (0-100)
      * @returns {THREE.BufferGeometry|null}
      */
-    generateGeometry(mesh, radius, overlapV = 0, overlapH = 0, baseFlattenPercent = 50) {
-        console.log(`[BubbleGenerator] Generating Version 24 (Absolute Stability): radius ${radius}, overlapV ${overlapV}%, overlapH ${overlapH}%, baseFlatten ${baseFlattenPercent}%`);
+    generateGeometry(mesh, radius, overlapV = 0, overlapH = 0, baseFlattenPercent = 50, arrangement = 'grid') {
+        console.log(`[BubbleGenerator] Generating Version 25 (Arrangements): radius ${radius}, overlapV ${overlapV}%, overlapH ${overlapH}%, baseFlatten ${baseFlattenPercent}%, arr ${arrangement}`);
         this.bubbleSize = radius;
 
         const geometries = [];
@@ -31,10 +31,15 @@ export class BubbleGenerator {
 
         // Calculate steps based on overlap
         const overlapFactorV = 1 - (overlapV / 100);
-        const layerStep = (radius * 2) * overlapFactorV;
+        let layerStep = (radius * 2) * overlapFactorV;
 
         const overlapFactorH = 1 - (overlapH / 100);
         const horizontalStep = (radius * 2) * overlapFactorH;
+
+        if (arrangement === 'oranges') {
+            // Hex packing: Z-step is ~ 1.63299 * radius
+            layerStep = (radius * 2) * Math.sqrt(2/3) * overlapFactorV;
+        }
 
         // Base Flattening Logic:
         const thetaLength = Math.PI * (1 - (Math.max(0, Math.min(100, baseFlattenPercent)) / 100));
@@ -61,7 +66,14 @@ export class BubbleGenerator {
             const contours = getSliceContours(mesh, sampleZ);
 
             if (contours.length > 0) {
-                const points = this.getGridPointsInContours(contours, box, horizontalStep);
+                let points = [];
+                if (arrangement === 'oranges') {
+                    points = this.getOrangesPointsInContours(contours, box, horizontalStep, layerIndex);
+                } else if (arrangement === 'rejection') {
+                    points = this.getRejectionSamplingPointsInContours(contours, box, horizontalStep, layerIndex);
+                } else {
+                    points = this.getGridPointsInContours(contours, box, horizontalStep);
+                }
 
                 points.forEach(p => {
                     const matrix = new THREE.Matrix4().makeTranslation(p.x, p.y, centerZ);
@@ -96,23 +108,125 @@ export class BubbleGenerator {
 
 
     /**
+     * Returns true hexagonal close packing points.
+     */
+    getOrangesPointsInContours(contours, box, spacing, layerIndex) {
+        const points = [];
+        // True hex packing row spacing
+        const rowSpacing = spacing * Math.sqrt(3) / 2;
+
+        const startN = Math.floor((box.min.x - spacing) / spacing);
+        const endN = Math.ceil((box.max.x + spacing) / spacing);
+
+        const startM = Math.floor((box.min.y - rowSpacing) / rowSpacing);
+        const endM = Math.ceil((box.max.y + rowSpacing) / rowSpacing);
+
+        const layerOffsetX = (layerIndex % 2 !== 0) ? spacing / 2 : 0;
+        const layerOffsetY = (layerIndex % 2 !== 0) ? rowSpacing / 3 : 0;
+
+        for (let m = startM; m <= endM; m++) {
+            const y = m * rowSpacing + (rowSpacing / 2) + layerOffsetY;
+            // Alternating rows shift by half spacing
+            const rowOffsetX = (m % 2 !== 0) ? spacing / 2 : 0;
+            
+            for (let n = startN; n <= endN; n++) {
+                const x = n * spacing + (spacing / 2) + rowOffsetX + layerOffsetX;
+
+                if (this.isPointInContours(x, y, contours)) {
+                    points.push({ x, y });
+                }
+            }
+        }
+        return points;
+    }
+
+    // Simple seeded random function
+    seededRandom(seed) {
+        let x = Math.sin(seed) * 10000;
+        return x - Math.floor(x);
+    }
+
+    getRejectionSamplingPointsInContours(contours, box, spacing, layerIndex) {
+        const points = [];
+        const cellSize = spacing / Math.sqrt(2); 
+        const grid = new Map();
+
+        let seed = layerIndex * 1337 + 1; // Basic seed per layer
+        const maxAttempts = 200;
+        let rejections = 0;
+        
+        const width = box.max.x - box.min.x;
+        const height = box.max.y - box.min.y;
+
+        // Ensure width and height are positive and large enough
+        if (width <= 0 || height <= 0) return points;
+
+        const maxIter = Math.floor((width * height) / (spacing * spacing)) * 10;
+
+        for (let i = 0; i < maxIter && rejections < maxAttempts; i++) {
+            const rx = box.min.x + this.seededRandom(seed++) * width;
+            const ry = box.min.y + this.seededRandom(seed++) * height;
+
+            if (!this.isPointInContours(rx, ry, contours)) {
+                continue; // Not a rejection, just not in mesh
+            }
+
+            // Spatial Hash Check
+            const gx = Math.floor(rx / cellSize);
+            const gy = Math.floor(ry / cellSize);
+            let tooClose = false;
+
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dy = -2; dy <= 2; dy++) {
+                    const key = `${gx + dx},${gy + dy}`;
+                    if (grid.has(key)) {
+                        const cellPoints = grid.get(key);
+                        for (const p of cellPoints) {
+                            const distSq = (p.x - rx) ** 2 + (p.y - ry) ** 2;
+                            if (distSq < spacing * spacing) {
+                                tooClose = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (tooClose) break;
+            }
+
+            if (!tooClose) {
+                points.push({ x: rx, y: ry });
+                const key = `${gx},${gy}`;
+                if (!grid.has(key)) grid.set(key, []);
+                grid.get(key).push({ x: rx, y: ry });
+                rejections = 0;
+            } else {
+                rejections++;
+            }
+        }
+        return points;
+    }
+
+    /**
      * Returns grid points (x, y) that are inside the contours.
      * Truly absolute world-grid anchored at (0,0).
      */
     getGridPointsInContours(contours, box, spacing) {
         const points = [];
+        
+        const centerX = (box.min.x + box.max.x) / 2;
+        const centerY = (box.min.y + box.max.y) / 2;
 
-        // Find the range of indices 'n' that cover the bounding box relative to (0,0).
-        const startN = Math.floor((box.min.x - (spacing / 2)) / spacing);
-        const endN = Math.ceil((box.max.x - (spacing / 2)) / spacing);
+        // Find the range of indices 'n' that cover the bounding box relative to center
+        const startN = Math.floor((box.min.x - centerX - spacing) / spacing);
+        const endN = Math.ceil((box.max.x - centerX + spacing) / spacing);
 
-        const startM = Math.floor((box.min.y - (spacing / 2)) / spacing);
-        const endM = Math.ceil((box.max.y - (spacing / 2)) / spacing);
+        const startM = Math.floor((box.min.y - centerY - spacing) / spacing);
+        const endM = Math.ceil((box.max.y - centerY + spacing) / spacing);
 
         for (let n = startN; n <= endN; n++) {
-            const x = n * spacing + (spacing / 2);
+            const x = centerX + n * spacing;
             for (let m = startM; m <= endM; m++) {
-                const y = m * spacing + (spacing / 2);
+                const y = centerY + m * spacing;
 
                 // Check if (x,y) is inside any contour
                 if (this.isPointInContours(x, y, contours)) {

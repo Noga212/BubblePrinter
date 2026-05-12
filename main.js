@@ -5,7 +5,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { setupSlicer, getModelHeight, updateSliceSettings, getCurrentMesh, getOriginalMesh, getClippingPlanes, setSliceTarget, setTargetGeometry, restoreOriginalGeometry } from './src/slicer_v2.js';
 import { BubbleGenerator } from './src/bubble_generator.js?v=8';
 
-console.log("[MAIN] BubblePrinter Version: 24 (Absolute Stability Fix)");
+console.log("[MAIN] BubblePrinter Version: 25 (Built-in Models)");
 
 
 // DOM Elements
@@ -74,6 +74,31 @@ animate();
 const bubbleGenerator = new BubbleGenerator();
 
 // Event Listeners for UI
+const demoModelSelector = document.getElementById('demoModelSelector');
+
+demoModelSelector.addEventListener('change', async (e) => {
+  const modelUrl = e.target.value;
+  if (!modelUrl) return;
+
+  try {
+    const response = await fetch(modelUrl);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+
+    resetBubbleSettings();
+    setSliceTarget(null);
+    setupSlicer(objectUrl, scene, camera, controls);
+    
+    // Reset selector so the same model can be selected again
+    demoModelSelector.value = "";
+  } catch (error) {
+    console.error("Error loading demo model:", error);
+    alert("Failed to load demo model.");
+    demoModelSelector.value = "";
+  }
+});
+
 document.getElementById('uploadBtn').addEventListener('click', () => {
   document.getElementById('fileInput').click();
 });
@@ -100,64 +125,47 @@ slider.addEventListener('input', (e) => {
 });
 
 
-// --- Adjust Settings Modal Logic ---
-const adjustBtn = document.getElementById('adjustBtn');
-const settingsModal = document.getElementById('layerSettingsModal');
-const cancelSettingsBtn = document.getElementById('cancelSettingsBtn');
-const applySettingsBtn = document.getElementById('applySettingsBtn');
-
+// --- Layer Settings Docked Panel Logic ---
 const layerCountInput = document.getElementById('layerCountInput');
 const layerHeightInput = document.getElementById('layerHeightInput');
+const applySettingsBtn = document.getElementById('applySettingsBtn');
 
-// Open Modal
-adjustBtn.addEventListener('click', () => {
-  // Sync current values (approximate if needed, but we start with defaults)
-  const currentMax = slider.max;
-  const height = getModelHeight();
+// Helper to keep inputs in sync based on current model height
+function syncLayerInputs(source) {
+  const height = getModelHeight() || 10; // Default height if no model is loaded
+  
+  if (source === 'count') {
+    const count = parseInt(layerCountInput.value) || 1;
+    const newLayerHeight = height / count;
+    layerHeightInput.value = newLayerHeight.toFixed(3);
+  } else if (source === 'height') {
+    const lh = parseFloat(layerHeightInput.value) || 0.1;
+    const newCount = Math.round(height / lh);
+    layerCountInput.value = newCount;
+  }
+}
 
-  layerCountInput.value = currentMax;
-  // Calc layer height: Total Height / Count
-  const lh = height / currentMax;
-  layerHeightInput.value = lh.toFixed(3); // 3 decimals for precision
+// Sync Inputs when user types
+layerCountInput.addEventListener('input', () => syncLayerInputs('count'));
+layerHeightInput.addEventListener('input', () => syncLayerInputs('height'));
 
-  settingsModal.style.display = 'flex';
-});
-
-// Close Modal
-const closeModal = () => {
-  settingsModal.style.display = 'none';
-};
-cancelSettingsBtn.addEventListener('click', closeModal);
-
-// Sync Inputs
-layerCountInput.addEventListener('input', () => {
-  const count = parseInt(layerCountInput.value) || 1;
-  const height = getModelHeight();
-  const newLayerHeight = height / count;
-  layerHeightInput.value = newLayerHeight.toFixed(3);
-});
-
-layerHeightInput.addEventListener('input', () => {
-  const lh = parseFloat(layerHeightInput.value) || 0.1;
-  const height = getModelHeight();
-  const newCount = Math.round(height / lh);
-  layerCountInput.value = newCount;
-});
-
-// Apply Settings
-applySettingsBtn.addEventListener('click', () => {
+// Apply settings automatically on blur (when user leaves the input)
+function applyLayerSettings() {
   const newCount = parseInt(layerCountInput.value);
   if (newCount > 0) {
     updateSliceSettings(newCount);
-    closeModal();
   } else {
     alert("Layer count must be greater than 0");
   }
-});
+}
+
+layerCountInput.addEventListener('change', applyLayerSettings);
+layerHeightInput.addEventListener('change', applyLayerSettings);
 
 // --- Bubble Mode Logic ---
 const bubbleModeToggle = document.getElementById('bubbleModeToggle');
 const bubbleSettings = document.getElementById('bubbleSettings');
+const bubbleArrangement = document.getElementById('bubbleArrangement');
 const bubbleSizeSlider = document.getElementById('bubbleSizeSlider');
 const bubbleSizeInput = document.getElementById('bubbleSizeInput');
 const bubbleOverlapVSlider = document.getElementById('bubbleOverlapVSlider');
@@ -166,7 +174,6 @@ const bubbleOverlapHSlider = document.getElementById('bubbleOverlapHSlider');
 const bubbleOverlapHInput = document.getElementById('bubbleOverlapHInput');
 const baseFlattenSlider = document.getElementById('baseFlattenSlider');
 const baseFlattenInput = document.getElementById('baseFlattenInput');
-const regenerateBubblesBtn = document.getElementById('regenerateBubblesBtn');
 
 bubbleModeToggle.addEventListener('change', () => {
   const mesh = getCurrentMesh();
@@ -201,6 +208,11 @@ bubbleSizeInput.addEventListener('input', (e) => {
   bubbleSizeSlider.value = val;
 });
 
+// Trigger generation on mouse release (change)
+bubbleSizeSlider.addEventListener('change', updateBubbleView);
+bubbleSizeInput.addEventListener('change', updateBubbleView);
+bubbleArrangement.addEventListener('change', updateBubbleView);
+
 // Sync Vertical Overlap
 bubbleOverlapVSlider.addEventListener('input', (e) => {
   bubbleOverlapVInput.value = e.target.value;
@@ -210,6 +222,9 @@ bubbleOverlapVInput.addEventListener('input', (e) => {
   bubbleOverlapVSlider.value = val;
 });
 
+bubbleOverlapVSlider.addEventListener('change', updateBubbleView);
+bubbleOverlapVInput.addEventListener('change', updateBubbleView);
+
 // Sync Horizontal Overlap
 bubbleOverlapHSlider.addEventListener('input', (e) => {
   bubbleOverlapHInput.value = e.target.value;
@@ -218,6 +233,9 @@ bubbleOverlapHInput.addEventListener('input', (e) => {
   const val = Math.min(Math.max(parseInt(e.target.value) || 0, 0), 70);
   bubbleOverlapHSlider.value = val;
 });
+
+bubbleOverlapHSlider.addEventListener('change', updateBubbleView);
+bubbleOverlapHInput.addEventListener('change', updateBubbleView);
 
 // Sync slider -> input for Base Flatten
 baseFlattenSlider.addEventListener('input', (e) => {
@@ -229,6 +247,9 @@ baseFlattenInput.addEventListener('input', (e) => {
   const val = Math.min(Math.max(parseInt(e.target.value) || 0, 0), 100);
   baseFlattenSlider.value = val;
 });
+
+baseFlattenSlider.addEventListener('change', updateBubbleView);
+baseFlattenInput.addEventListener('change', updateBubbleView);
 
 /**
  * Resets all bubble settings to default and turns off Bubble Mode.
@@ -250,11 +271,9 @@ function resetBubbleSettings() {
 
   baseFlattenSlider.value = 50;
   baseFlattenInput.value = 50;
+  
+  bubbleArrangement.value = 'grid';
 }
-
-regenerateBubblesBtn.addEventListener('click', () => {
-  updateBubbleView();
-});
 
 function updateBubbleView() {
   // Use the ORIGINAL mesh, not currentMesh (which may already be bubbles)
@@ -269,11 +288,12 @@ function updateBubbleView() {
     const overlapV = parseInt(bubbleOverlapVSlider.value);
     const overlapH = parseInt(bubbleOverlapHSlider.value);
     const baseFlattenPercent = parseInt(baseFlattenSlider.value);
+    const arrangement = bubbleArrangement.value;
 
-    console.log(`[MAIN] Refresh clicked! size=${radius}, overlapV=${overlapV}, overlapH=${overlapH}, flatten=${baseFlattenPercent}`);
+    console.log(`[MAIN] Refresh clicked! size=${radius}, overlapV=${overlapV}, overlapH=${overlapH}, flatten=${baseFlattenPercent}, arr=${arrangement}`);
 
     // Generate Bubbles from the ORIGINAL geometry
-    const bubbleGeo = bubbleGenerator.generateGeometry(originalMesh, radius, overlapV, overlapH, baseFlattenPercent);
+    const bubbleGeo = bubbleGenerator.generateGeometry(originalMesh, radius, overlapV, overlapH, baseFlattenPercent, arrangement);
 
     if (bubbleGeo) {
       // Hand over to Slicer for Visualization (Orange Cut + Caps)
