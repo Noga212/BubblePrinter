@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // Slicer & Bubble Generator
-import { setupSlicer, getModelHeight, updateSliceSettings, getCurrentMesh, getOriginalMesh, getClippingPlanes, setSliceTarget, setTargetGeometry, restoreOriginalGeometry } from './src/slicer_v2.js';
+import { setupSlicer, getModelHeight, updateSliceSettings, getCurrentMesh, getOriginalMesh, getClippingPlanes, setSliceTarget, setTargetGeometry, restoreOriginalGeometry, setGhostModelVisibility } from './src/slicer_v2.js';
 import { BubbleGenerator } from './src/bubble_generator.js?v=8';
 
 console.log("[MAIN] BubblePrinter Version: 25 (Built-in Models)");
@@ -162,9 +162,18 @@ function applyLayerSettings() {
 layerCountInput.addEventListener('change', applyLayerSettings);
 layerHeightInput.addEventListener('change', applyLayerSettings);
 
+const ghostModelToggle = document.getElementById('ghostModelToggle');
+if (ghostModelToggle) {
+  ghostModelToggle.addEventListener('change', (e) => {
+    setGhostModelVisibility(e.target.checked);
+  });
+}
+
 // --- Bubble Mode Logic ---
 const bubbleModeToggle = document.getElementById('bubbleModeToggle');
 const bubbleSettings = document.getElementById('bubbleSettings');
+const bubbleSizeMode = document.getElementById('bubbleSizeMode');
+const bubbleSizeLabel = document.getElementById('bubbleSizeLabel');
 const bubbleArrangement = document.getElementById('bubbleArrangement');
 const bubbleSizeSlider = document.getElementById('bubbleSizeSlider');
 const bubbleSizeInput = document.getElementById('bubbleSizeInput');
@@ -212,6 +221,15 @@ bubbleSizeInput.addEventListener('input', (e) => {
 bubbleSizeSlider.addEventListener('change', updateBubbleView);
 bubbleSizeInput.addEventListener('change', updateBubbleView);
 bubbleArrangement.addEventListener('change', updateBubbleView);
+
+bubbleSizeMode.addEventListener('change', (e) => {
+  if (e.target.value === 'uniform') {
+    bubbleSizeLabel.textContent = 'Size:';
+  } else {
+    bubbleSizeLabel.textContent = 'Mean Size:';
+  }
+  updateBubbleView();
+});
 
 // Sync Vertical Overlap
 bubbleOverlapVSlider.addEventListener('input', (e) => {
@@ -273,6 +291,8 @@ function resetBubbleSettings() {
   baseFlattenInput.value = 50;
   
   bubbleArrangement.value = 'grid';
+  bubbleSizeMode.value = 'uniform';
+  bubbleSizeLabel.textContent = 'Size:';
 }
 
 function updateBubbleView() {
@@ -289,11 +309,12 @@ function updateBubbleView() {
     const overlapH = parseInt(bubbleOverlapHSlider.value);
     const baseFlattenPercent = parseInt(baseFlattenSlider.value);
     const arrangement = bubbleArrangement.value;
+    const sizeMode = bubbleSizeMode.value;
 
-    console.log(`[MAIN] Refresh clicked! size=${radius}, overlapV=${overlapV}, overlapH=${overlapH}, flatten=${baseFlattenPercent}, arr=${arrangement}`);
+    console.log(`[MAIN] Refresh clicked! size=${radius}, mode=${sizeMode}, overlapV=${overlapV}, overlapH=${overlapH}, flatten=${baseFlattenPercent}, arr=${arrangement}`);
 
     // Generate Bubbles from the ORIGINAL geometry
-    const bubbleGeo = bubbleGenerator.generateGeometry(originalMesh, radius, overlapV, overlapH, baseFlattenPercent, arrangement);
+    const bubbleGeo = bubbleGenerator.generateGeometry(originalMesh, radius, overlapV, overlapH, baseFlattenPercent, arrangement, sizeMode);
 
     if (bubbleGeo) {
       // Hand over to Slicer for Visualization (Orange Cut + Caps)

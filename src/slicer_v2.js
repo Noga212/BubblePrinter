@@ -187,6 +187,12 @@ export function setupSlicer(url, scene, camera, controls) {
         });
         scene.add(ghostMesh);
 
+        // Initialize Ghost Model Visibility
+        const ghostToggle = document.getElementById('ghostModelToggle');
+        if (ghostToggle) {
+            ghostMesh.visible = ghostToggle.checked;
+        }
+
         // Adjust camera target
         const newCenter = new THREE.Vector3(0, 0, (size.z * scale) / 2);
         controls.target.copy(newCenter);
@@ -420,7 +426,9 @@ export function restoreOriginalGeometry(scene) {
     }
     if (ghostMesh) {
         scene.remove(ghostMesh);
-        if (ghostMesh.geometry) ghostMesh.geometry.dispose();
+        if (ghostMesh.geometry && currentMesh !== originalMesh) {
+            ghostMesh.geometry.dispose();
+        }
     }
 
     // Restore Original
@@ -450,6 +458,11 @@ export function restoreOriginalGeometry(scene) {
     });
     scene.add(ghostMesh);
 
+    const ghostToggle = document.getElementById('ghostModelToggle');
+    if (ghostToggle) {
+        ghostMesh.visible = ghostToggle.checked;
+    }
+
     setSliceTarget(currentMesh);
 }
 
@@ -477,7 +490,9 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
     }
     if (ghostMesh) {
         scene.remove(ghostMesh);
-        if (ghostMesh.geometry) ghostMesh.geometry.dispose();
+        if (ghostMesh.geometry && currentMesh !== originalMesh) {
+            ghostMesh.geometry.dispose();
+        }
     }
 
     // 2. Create Solid Mesh (Bottom)
@@ -521,6 +536,11 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
     // Reuse geometry?
     ghostMesh = new THREE.Mesh(geometry, ghostMat);
     scene.add(ghostMesh);
+    
+    const ghostToggle = document.getElementById('ghostModelToggle');
+    if (ghostToggle) {
+        ghostMesh.visible = ghostToggle.checked;
+    }
     console.log("[Slicer] Ghost Mesh created and added.");
 
     // Update Height logic
@@ -546,6 +566,13 @@ export function setSliceTarget(mesh) {
         // The slider max is set by layer count usually, but the clipping logic relies on slider.value/max * modelHeight.
         // We just trigger input to re-run the plane updates.
         slider.dispatchEvent(new Event('input'));
+    }
+}
+
+export function setGhostModelVisibility(visible) {
+    console.log(`[Slicer] Toggling Ghost Mesh Visibility: ${visible}, ghostMesh exists: ${!!ghostMesh}`);
+    if (ghostMesh) {
+        ghostMesh.visible = visible;
     }
 }
 

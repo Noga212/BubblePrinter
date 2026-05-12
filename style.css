@@ -361,6 +361,21 @@ input[type=number]::-webkit-outer-spin-button {
     gap: 8px;
 }
 
+.setting-control {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    width: 140px;
+}
+
+.unit-label {
+    display: inline-block;
+    width: 20px;
+    text-align: left;
+    color: var(--text-muted);
+}
+
 .value-input {
     width: 60px;
     padding: 4px 8px;

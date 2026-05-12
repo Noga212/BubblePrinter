@@ -17,8 +17,8 @@ export class BubbleGenerator {
      * @param {number} baseFlattenPercent - How much of the first layer spheres is flattened (0-100)
      * @returns {THREE.BufferGeometry|null}
      */
-    generateGeometry(mesh, radius, overlapV = 0, overlapH = 0, baseFlattenPercent = 50, arrangement = 'grid') {
-        console.log(`[BubbleGenerator] Generating Version 25 (Arrangements): radius ${radius}, overlapV ${overlapV}%, overlapH ${overlapH}%, baseFlatten ${baseFlattenPercent}%, arr ${arrangement}`);
+    generateGeometry(mesh, radius, overlapV = 0, overlapH = 0, baseFlattenPercent = 50, arrangement = 'grid', sizeMode = 'uniform') {
+        console.log(`[BubbleGenerator] Generating Mode: ${sizeMode}, radius ${radius}, overlapV ${overlapV}%, overlapH ${overlapH}%, baseFlatten ${baseFlattenPercent}%, arr ${arrangement}`);
         this.bubbleSize = radius;
 
         const geometries = [];
@@ -31,42 +31,49 @@ export class BubbleGenerator {
 
         // Calculate steps based on overlap
         const overlapFactorV = 1 - (overlapV / 100);
-        let layerStep = (radius * 2) * overlapFactorV;
-
         const overlapFactorH = 1 - (overlapH / 100);
-        const horizontalStep = (radius * 2) * overlapFactorH;
 
-        if (arrangement === 'oranges') {
-            // Hex packing: Z-step is ~ 1.63299 * radius
-            layerStep = (radius * 2) * Math.sqrt(2/3) * overlapFactorV;
-        }
+        const meanRadius = radius;
+        const minRadius = meanRadius * 0.5;
+        const maxRadius = meanRadius * 1.5;
+        const maxShellDepth = meanRadius * 4;
+
+        let firstLayerRadius = meanRadius;
+        if (sizeMode === 'z_gradient_down') firstLayerRadius = maxRadius;
+        if (sizeMode === 'z_gradient_up') firstLayerRadius = minRadius;
 
         // Base Flattening Logic:
         const thetaLength = Math.PI * (1 - (Math.max(0, Math.min(100, baseFlattenPercent)) / 100));
+        const baseZOffset = - (firstLayerRadius * Math.cos(thetaLength));
+        let centerZ = minZ + baseZOffset;
 
-        // Calculate the base translation so the cut face sits exactly at minZ.
-        const baseZOffset = - (radius * Math.cos(thetaLength));
-        const centerZ0 = minZ + baseZOffset;
-
-        console.log(`[BubbleGenerator] baseFlatten=${baseFlattenPercent}%, centerZ0=${centerZ0.toFixed(3)}`);
+        console.log(`[BubbleGenerator] baseFlatten=${baseFlattenPercent}%, centerZ0=${centerZ.toFixed(3)}`);
 
         let layerIndex = 0;
 
         // Loop until we reach the top of the model
         while (true) {
-            const centerZ = centerZ0 + layerIndex * layerStep;
+            let currentLayerRadius = meanRadius;
+            let currentZProgress = (maxZ > minZ) ? Math.max(0, Math.min(1, (centerZ - minZ) / (maxZ - minZ))) : 0;
+            
+            if (sizeMode === 'z_gradient_down') {
+                currentLayerRadius = maxRadius - currentZProgress * (maxRadius - minRadius);
+            } else if (sizeMode === 'z_gradient_up') {
+                currentLayerRadius = minRadius + currentZProgress * (maxRadius - minRadius);
+            }
 
             // If the bottom of the current bubble is above maxZ, we stop.
-            if (centerZ - radius > maxZ) break;
+            if (centerZ - currentLayerRadius > maxZ) break;
 
             // Define a sampling height for the mesh contours.
-            // We sample at centerZ, but clamp it to be slightly inside the mesh bounds.
             let sampleZ = Math.min(maxZ - 0.01, Math.max(minZ + 0.01, centerZ));
 
             const contours = getSliceContours(mesh, sampleZ);
 
             if (contours.length > 0) {
                 let points = [];
+                let horizontalStep = (currentLayerRadius * 2) * overlapFactorH;
+
                 if (arrangement === 'oranges') {
                     points = this.getOrangesPointsInContours(contours, box, horizontalStep, layerIndex);
                 } else if (arrangement === 'rejection') {
@@ -76,13 +83,25 @@ export class BubbleGenerator {
                 }
 
                 points.forEach(p => {
+                    let bubbleRadius = currentLayerRadius;
+
+                    if (sizeMode === 'shell_gradient_in' || sizeMode === 'adaptive') {
+                        const dist = this.distanceToContours(p.x, p.y, contours);
+                        if (sizeMode === 'adaptive') {
+                            bubbleRadius = dist < maxShellDepth ? minRadius : maxRadius;
+                        } else {
+                            const t = Math.min(dist / maxShellDepth, 1.0);
+                            bubbleRadius = minRadius + t * (maxRadius - minRadius);
+                        }
+                    }
+
                     const matrix = new THREE.Matrix4().makeTranslation(p.x, p.y, centerZ);
 
                     let geo;
                     if (layerIndex === 0) {
-                        geo = new THREE.SphereGeometry(radius, 16, 12, 0, Math.PI * 2, 0, thetaLength);
+                        geo = new THREE.SphereGeometry(bubbleRadius, 16, 12, 0, Math.PI * 2, 0, thetaLength);
                     } else {
-                        geo = new THREE.SphereGeometry(radius, 16, 12);
+                        geo = new THREE.SphereGeometry(bubbleRadius, 16, 12);
                     }
 
                     // Rotate ALL spheres so poles are on the Z axis (Vertical).
@@ -92,9 +111,16 @@ export class BubbleGenerator {
                 });
             }
 
+            let layerStep = (currentLayerRadius * 2) * overlapFactorV;
+            if (arrangement === 'oranges') {
+                layerStep = (currentLayerRadius * 2) * Math.sqrt(2/3) * overlapFactorV;
+            }
+            
+            centerZ += layerStep;
             layerIndex++;
+
             // Safety break
-            if (layerIndex > 700) break;
+            if (layerIndex > 2000) break;
         }
 
         if (geometries.length > 0) {
@@ -104,6 +130,35 @@ export class BubbleGenerator {
             console.warn('[BubbleGenerator] No bubbles generated.');
             return null;
         }
+    }
+
+    /**
+     * Calculates shortest distance from point to any contour edge
+     */
+    distanceToContours(x, y, contours) {
+        let minDist = Infinity;
+        for (const polygon of contours) {
+            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                const xi = polygon[i][0], yi = polygon[i][1];
+                const xj = polygon[j][0], yj = polygon[j][1];
+                
+                // Point to line segment distance
+                const l2 = (xi - xj) ** 2 + (yi - yj) ** 2;
+                if (l2 === 0) {
+                    minDist = Math.min(minDist, Math.hypot(x - xi, y - yi));
+                    continue;
+                }
+                
+                let t = ((x - xi) * (xj - xi) + (y - yi) * (yj - yi)) / l2;
+                t = Math.max(0, Math.min(1, t));
+                
+                const projX = xi + t * (xj - xi);
+                const projY = yi + t * (yj - yi);
+                
+                minDist = Math.min(minDist, Math.hypot(x - projX, y - projY));
+            }
+        }
+        return minDist;
     }
 
 
