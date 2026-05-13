@@ -36,7 +36,6 @@ export class BubbleGenerator {
         const meanRadius = radius;
         const minRadius = explicitMinRadius !== null ? explicitMinRadius : meanRadius * 0.5;
         const maxRadius = explicitMaxRadius !== null ? explicitMaxRadius : meanRadius * 1.5;
-        const maxShellDepth = meanRadius * 4;
 
         let firstLayerRadius = meanRadius;
         if (sizeMode === 'z_gradient_down') firstLayerRadius = maxRadius;
@@ -44,6 +43,11 @@ export class BubbleGenerator {
 
         // Base Flattening Logic:
         const thetaLength = Math.PI * (1 - (Math.max(0, Math.min(100, baseFlattenPercent)) / 100));
+
+        if (sizeMode === 'shell_gradient_in' || sizeMode === 'adaptive') {
+            return this.generate3DPacking(mesh, box, meanRadius, minRadius, maxRadius, overlapFactorH, overlapFactorV, baseFlattenPercent, sizeMode, thetaLength);
+        }
+
         const baseZOffset = - (firstLayerRadius * Math.cos(thetaLength));
         let centerZ = minZ + baseZOffset;
 
@@ -72,6 +76,7 @@ export class BubbleGenerator {
 
             if (contours.length > 0) {
                 let points = [];
+                
                 let horizontalStep = (currentLayerRadius * 2) * overlapFactorH;
 
                 if (arrangement === 'oranges') {
@@ -83,25 +88,13 @@ export class BubbleGenerator {
                 }
 
                 points.forEach(p => {
-                    let bubbleRadius = currentLayerRadius;
-
-                    if (sizeMode === 'shell_gradient_in' || sizeMode === 'adaptive') {
-                        const dist = this.distanceToContours(p.x, p.y, contours);
-                        if (sizeMode === 'adaptive') {
-                            bubbleRadius = dist < maxShellDepth ? minRadius : maxRadius;
-                        } else {
-                            const t = Math.min(dist / maxShellDepth, 1.0);
-                            bubbleRadius = minRadius + t * (maxRadius - minRadius);
-                        }
-                    }
-
                     const matrix = new THREE.Matrix4().makeTranslation(p.x, p.y, centerZ);
 
                     let geo;
                     if (layerIndex === 0) {
-                        geo = new THREE.SphereGeometry(bubbleRadius, 16, 12, 0, Math.PI * 2, 0, thetaLength);
+                        geo = new THREE.SphereGeometry(currentLayerRadius, 16, 12, 0, Math.PI * 2, 0, thetaLength);
                     } else {
-                        geo = new THREE.SphereGeometry(bubbleRadius, 16, 12);
+                        geo = new THREE.SphereGeometry(currentLayerRadius, 16, 12);
                     }
 
                     // Rotate ALL spheres so poles are on the Z axis (Vertical).
@@ -130,6 +123,168 @@ export class BubbleGenerator {
             console.warn('[BubbleGenerator] No bubbles generated.');
             return null;
         }
+    }
+
+    generate3DPacking(mesh, box, meanRadius, minRadius, maxRadius, overlapFactorH, overlapFactorV, baseFlattenPercent, sizeMode, thetaLength) {
+        console.log(`[BubbleGenerator] Using 3D Advancing Front for ${sizeMode}`);
+        const geometries = [];
+        const bubbles = [];
+        const active = [];
+        
+        const minZ = box.min.z;
+        const maxZ = box.max.z;
+        const startZ = minZ - (minRadius * Math.cos(thetaLength));
+        
+        const sliceCache = new Map();
+        const getContours = (z) => {
+            const zKey = Math.round(z / 0.1);
+            if (sliceCache.has(zKey)) return sliceCache.get(zKey);
+            const sampleZ = Math.min(maxZ - 0.01, Math.max(minZ + 0.01, zKey * 0.1));
+            const contours = getSliceContours(mesh, sampleZ);
+            sliceCache.set(zKey, contours);
+            return contours;
+        };
+
+        const evaluateRadius = (x, y, z, contours) => {
+            const dist = this.distanceToContours(x, y, contours);
+            const maxShellDepth = maxRadius * 3;
+            if (sizeMode === 'adaptive') {
+                if (dist < maxShellDepth * 0.33) return minRadius;
+                if (dist < maxShellDepth * 0.66) return minRadius + (maxRadius - minRadius) / 2;
+                return maxRadius;
+            } else {
+                const t = Math.min(dist / maxShellDepth, 1.0);
+                return minRadius + t * (maxRadius - minRadius);
+            }
+        };
+
+        const firstLayerContours = getContours(startZ);
+        if (firstLayerContours.length === 0) return null;
+
+        const cellSize = maxRadius * 2.1;
+        const grid = new Map();
+        const addGrid = (b) => {
+            const k = `${Math.floor(b.x/cellSize)},${Math.floor(b.y/cellSize)},${Math.floor(b.z/cellSize)}`;
+            if (!grid.has(k)) grid.set(k, []);
+            grid.get(k).push(b);
+        };
+
+        const minSpacing = minRadius * 2 * overlapFactorH;
+        const initialPoints = this.getGridPointsInContours(firstLayerContours, box, minSpacing);
+        
+        initialPoints.forEach(p => {
+            const r = evaluateRadius(p.x, p.y, startZ, firstLayerContours);
+            let overlap = false;
+            for(let b of bubbles) {
+                const ex = (p.x - b.x) / overlapFactorH;
+                const ey = (p.y - b.y) / overlapFactorH;
+                const req = r + b.radius;
+                if (ex*ex + ey*ey < req*req - 0.001) { overlap = true; break; }
+            }
+            if (!overlap) {
+                const nb = { x: p.x, y: p.y, z: startZ, radius: r };
+                bubbles.push(nb);
+                active.push(nb);
+                addGrid(nb);
+            }
+        });
+
+        let seed = 12345;
+        const sRand = () => { let x = Math.sin(seed++) * 10000; return x - Math.floor(x); };
+
+        let iter = 0;
+        const MAX_ITER = 300000;
+        
+        while (active.length > 0 && iter++ < MAX_ITER) {
+            const idx = Math.floor(sRand() * active.length);
+            const b = active[idx];
+            let added = false;
+            
+            for (let i = 0; i < 30; i++) {
+                const theta = sRand() * Math.PI * 2;
+                const phi = Math.acos(2 * sRand() - 1);
+                
+                const dirX = Math.sin(phi) * Math.cos(theta) * overlapFactorH;
+                const dirY = Math.sin(phi) * Math.sin(theta) * overlapFactorH;
+                const dirZ = Math.cos(phi) * overlapFactorV;
+                
+                const guessR = (minRadius + maxRadius) / 2;
+                const tempX = b.x + dirX * (b.radius + guessR);
+                const tempY = b.y + dirY * (b.radius + guessR);
+                const tempZ = b.z + dirZ * (b.radius + guessR);
+                
+                if (tempZ < minZ || tempZ > maxZ) continue;
+                const contours = getContours(tempZ);
+                if (!this.isPointInContours(tempX, tempY, contours)) continue;
+                
+                const r = evaluateRadius(tempX, tempY, tempZ, contours);
+                
+                const cx = b.x + dirX * (b.radius + r);
+                const cy = b.y + dirY * (b.radius + r);
+                const cz = b.z + dirZ * (b.radius + r);
+                
+                if (cz < minZ || cz > maxZ) continue;
+                const finalContours = getContours(cz);
+                if (!this.isPointInContours(cx, cy, finalContours)) continue;
+                
+                let overlap = false;
+                const hx = Math.floor(cx/cellSize);
+                const hy = Math.floor(cy/cellSize);
+                const hz = Math.floor(cz/cellSize);
+                
+                for(let dx=-1; dx<=1; dx++){
+                    for(let dy=-1; dy<=1; dy++){
+                        for(let dz=-1; dz<=1; dz++){
+                            const k = `${hx+dx},${hy+dy},${hz+dz}`;
+                            const cell = grid.get(k);
+                            if(cell) {
+                                for(let cb of cell) {
+                                    const ex = (cx - cb.x) / overlapFactorH;
+                                    const ey = (cy - cb.y) / overlapFactorH;
+                                    const ez = (cz - cb.z) / overlapFactorV;
+                                    const d2 = ex*ex + ey*ey + ez*ez;
+                                    const req = r + cb.radius;
+                                    if (d2 < req * req - 0.001) {
+                                        overlap = true; break;
+                                    }
+                                }
+                            }
+                            if(overlap) break;
+                        }
+                        if(overlap) break;
+                    }
+                    if(overlap) break;
+                }
+                
+                if (!overlap) {
+                    const nb = { x: cx, y: cy, z: cz, radius: r };
+                    bubbles.push(nb);
+                    active.push(nb);
+                    addGrid(nb);
+                    added = true;
+                    break;
+                }
+            }
+            
+            if (!added) active.splice(idx, 1);
+            if (bubbles.length > 6000) break;
+        }
+
+        bubbles.forEach(b => {
+            const matrix = new THREE.Matrix4().makeTranslation(b.x, b.y, b.z);
+            let geo;
+            if (Math.abs(b.z - startZ) < 0.1) {
+                geo = new THREE.SphereGeometry(b.radius, 16, 12, 0, Math.PI * 2, 0, thetaLength);
+            } else {
+                geo = new THREE.SphereGeometry(b.radius, 16, 12);
+            }
+            geo.rotateX(Math.PI / 2);
+            geometries.push(geo.clone().applyMatrix4(matrix));
+        });
+
+        console.log(`[BubbleGenerator] 3D Packing produced ${bubbles.length} bubbles.`);
+        if (geometries.length > 0) return BufferGeometryUtils.mergeGeometries(geometries);
+        return null;
     }
 
     /**
