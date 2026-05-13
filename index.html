@@ -95,62 +95,91 @@
         </div>
 
         <div id="bubbleSettings" class="bubble-settings" style="display: none;">
-          <div class="setting-row" title="The packing pattern used to arrange bubbles on each layer.">
-            <label>Arrangement:</label>
-            <div class="setting-control">
-              <select id="bubbleArrangement" class="value-input" style="width: 100%;">
-                <option value="grid">Grid</option>
-                <option value="oranges">Oranges</option>
-                <option value="rejection">Random</option>
-              </select>
+          <div class="setting-group">
+            <div class="setting-row" title="The packing pattern used to arrange bubbles on each layer.">
+              <label>Arrangement:</label>
+              <div class="setting-control">
+                <select id="bubbleArrangement" class="value-input" style="width: 100%;">
+                  <option value="grid">Grid</option>
+                  <option value="oranges">Oranges</option>
+                  <option value="rejection">Random</option>
+                </select>
+              </div>
             </div>
           </div>
-          <div class="setting-row" title="The sizing mode used for the bubbles.">
-            <label>Size Mode:</label>
-            <div class="setting-control">
-              <select id="bubbleSizeMode" class="value-input" style="width: 100%;">
-                <option value="uniform">Uniform</option>
-                <option value="shell_gradient_in">Shell Gradient</option>
-                <option value="adaptive">Adaptive</option>
-                <option value="z_gradient_down">Z-Axis (Big to Small)</option>
-                <option value="z_gradient_up">Z-Axis (Small to Big)</option>
-              </select>
+          <div class="setting-group">
+            <div class="setting-row" title="The sizing mode used for the bubbles.">
+              <label>Size Mode:</label>
+              <div class="setting-control">
+                <select id="bubbleSizeMode" class="value-input" style="width: 100%;">
+                  <option value="uniform">Uniform</option>
+                  <option value="shell_gradient_in">Shell Gradient</option>
+                  <option value="adaptive">Adaptive</option>
+                  <option value="z_gradient_down">Z-Axis (Big to Small)</option>
+                  <option value="z_gradient_up">Z-Axis (Small to Big)</option>
+                </select>
+              </div>
             </div>
           </div>
-          <div class="setting-row" title="The mean diameter of individual bubbles in millimeters.">
-            <label id="bubbleSizeLabel">Mean Size:</label>
-            <div class="setting-control">
-              <input type="number" id="bubbleSizeInput" min="0.01" max="2.0" step="0.01" value="0.5" class="value-input">
-              <span class="unit-label">mm</span>
+          <div id="uniformSizeControl" class="setting-group">
+            <div class="setting-row" title="The diameter of individual bubbles in millimeters.">
+              <label id="bubbleSizeLabel">Size:</label>
+              <div class="setting-control">
+                <input type="number" id="bubbleSizeInput" min="0.01" max="2.0" step="0.01" value="0.5" class="value-input">
+                <span class="unit-label">mm</span>
+              </div>
             </div>
+            <input type="range" id="bubbleSizeSlider" min="0.01" max="2.0" step="0.01" value="0.5"
+              class="horizontal-slider" title="The diameter of individual bubbles in millimeters.">
           </div>
-          <input type="range" id="bubbleSizeSlider" min="0.01" max="2.0" step="0.01" value="0.5"
-            class="horizontal-slider" title="The diameter of individual bubbles in millimeters.">
-          <div class="setting-row" title="How much bubbles intersect with the layer beneath them. Higher values squish layers together.">
-            <label>Vertical Overlap:</label>
-            <div class="setting-control">
-              <input type="number" id="bubbleOverlapVInput" min="0" max="70" step="1" value="0" class="value-input">
-              <span class="unit-label">%</span>
-            </div>
-          </div>
-          <input type="range" id="bubbleOverlapVSlider" min="0" max="70" step="1" value="0" class="horizontal-slider" title="How much bubbles intersect with the layer beneath them. Higher values squish layers together.">
 
-          <div class="setting-row" title="How much bubbles intersect with neighbor bubbles on the same layer.">
-            <label>Horizontal Overlap:</label>
-            <div class="setting-control">
-              <input type="number" id="bubbleOverlapHInput" min="0" max="70" step="1" value="0" class="value-input">
-              <span class="unit-label">%</span>
+          <div id="rangeSizeControl" class="setting-group" style="display: none;">
+            <div class="setting-row" title="The min and max diameter of individual bubbles in millimeters.">
+              <label>Min/Max Size:</label>
+              <div class="setting-control" style="width: 190px; justify-content: flex-end; gap: 6px;">
+                <input type="number" id="bubbleMinInput" min="0.01" max="2.0" step="0.01" value="0.25" class="value-input" style="width: 50px;">
+                <span style="color:var(--text-muted)">-</span>
+                <input type="number" id="bubbleMaxInput" min="0.01" max="2.0" step="0.01" value="0.75" class="value-input" style="width: 50px;">
+                <span class="unit-label">mm</span>
+              </div>
+            </div>
+            <div class="dual-slider-container">
+              <input type="range" id="bubbleMinSlider" min="0.01" max="2.0" step="0.01" value="0.25" class="horizontal-slider dual-slider">
+              <input type="range" id="bubbleMaxSlider" min="0.01" max="2.0" step="0.01" value="0.75" class="horizontal-slider dual-slider dual-slider-top">
             </div>
           </div>
-          <input type="range" id="bubbleOverlapHSlider" min="0" max="70" step="1" value="0" class="horizontal-slider" title="How much bubbles intersect with neighbor bubbles on the same layer.">
-          <div class="setting-row" title="Flattens the bottom-most layer of bubbles to improve bed adhesion.">
-            <label>Base Flatten:</label>
-            <div class="setting-control">
-              <input type="number" id="baseFlattenInput" min="0" max="100" step="1" value="50" class="value-input">
-              <span class="unit-label">%</span>
+          <div class="setting-group">
+            <div class="setting-row" title="How much bubbles intersect with the layer beneath them. Higher values squish layers together.">
+              <label>Vertical Overlap:</label>
+              <div class="setting-control">
+                <input type="number" id="bubbleOverlapVInput" min="0" max="70" step="1" value="0" class="value-input">
+                <span class="unit-label">%</span>
+              </div>
             </div>
+            <input type="range" id="bubbleOverlapVSlider" min="0" max="70" step="1" value="0" class="horizontal-slider" title="How much bubbles intersect with the layer beneath them. Higher values squish layers together.">
           </div>
-          <input type="range" id="baseFlattenSlider" min="0" max="100" step="1" value="50" class="horizontal-slider" title="Flattens the bottom-most layer of bubbles to improve bed adhesion.">
+
+          <div class="setting-group">
+            <div class="setting-row" title="How much bubbles intersect with neighbor bubbles on the same layer.">
+              <label>Horizontal Overlap:</label>
+              <div class="setting-control">
+                <input type="number" id="bubbleOverlapHInput" min="0" max="70" step="1" value="0" class="value-input">
+                <span class="unit-label">%</span>
+              </div>
+            </div>
+            <input type="range" id="bubbleOverlapHSlider" min="0" max="70" step="1" value="0" class="horizontal-slider" title="How much bubbles intersect with neighbor bubbles on the same layer.">
+          </div>
+
+          <div class="setting-group">
+            <div class="setting-row" title="Flattens the bottom-most layer of bubbles to improve bed adhesion.">
+              <label>Base Flatten:</label>
+              <div class="setting-control">
+                <input type="number" id="baseFlattenInput" min="0" max="100" step="1" value="50" class="value-input">
+                <span class="unit-label">%</span>
+              </div>
+            </div>
+            <input type="range" id="baseFlattenSlider" min="0" max="100" step="1" value="50" class="horizontal-slider" title="Flattens the bottom-most layer of bubbles to improve bed adhesion.">
+          </div>
         </div>
       </div>
 

@@ -349,7 +349,14 @@ input[type=number]::-webkit-outer-spin-button {
     margin-top: 15px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+}
+
+.setting-group {
+    margin-bottom: 25px;
+}
+
+.setting-group:last-child {
+    margin-bottom: 0;
 }
 
 .setting-row {
@@ -407,11 +414,56 @@ input[type=number]::-webkit-outer-spin-button {
 }
 
 input[type=range].horizontal-slider {
-    width: 100%;
     transform: none !important;
     height: 5px !important;
-    width: 80% !important;
-    margin: 10px auto !important;
+    width: 100% !important;
+    margin: 12px 0 0 0 !important;
+}
+
+.dual-slider-container {
+    position: relative;
+    width: 100%;
+    margin: 12px 0 0 0;
+    height: 20px;
+}
+
+input[type=range].horizontal-slider.dual-slider {
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    margin: 0 !important;
+    pointer-events: none !important;
+}
+
+.dual-slider::-webkit-slider-runnable-track {
+    pointer-events: none !important;
+}
+
+.dual-slider::-webkit-slider-thumb {
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 2;
+}
+
+.dual-slider::-moz-range-track {
+    pointer-events: none !important;
+}
+
+.dual-slider::-moz-range-thumb {
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 2;
+}
+
+.dual-slider-top::-webkit-slider-runnable-track {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.dual-slider-top::-moz-range-track {
+    background: transparent !important;
+    box-shadow: none !important;
 }
 
 .action-btn {

@@ -184,6 +184,13 @@ const bubbleOverlapHInput = document.getElementById('bubbleOverlapHInput');
 const baseFlattenSlider = document.getElementById('baseFlattenSlider');
 const baseFlattenInput = document.getElementById('baseFlattenInput');
 
+const uniformSizeControl = document.getElementById('uniformSizeControl');
+const rangeSizeControl = document.getElementById('rangeSizeControl');
+const bubbleMinSlider = document.getElementById('bubbleMinSlider');
+const bubbleMaxSlider = document.getElementById('bubbleMaxSlider');
+const bubbleMinInput = document.getElementById('bubbleMinInput');
+const bubbleMaxInput = document.getElementById('bubbleMaxInput');
+
 bubbleModeToggle.addEventListener('change', () => {
   const mesh = getCurrentMesh();
   if (!mesh) {
@@ -217,16 +224,49 @@ bubbleSizeInput.addEventListener('input', (e) => {
   bubbleSizeSlider.value = val;
 });
 
+// Range controls syncing
+bubbleMinSlider.addEventListener('input', (e) => {
+  if (parseFloat(bubbleMinSlider.value) > parseFloat(bubbleMaxSlider.value)) {
+    bubbleMinSlider.value = bubbleMaxSlider.value;
+  }
+  bubbleMinInput.value = parseFloat(bubbleMinSlider.value).toFixed(2);
+});
+
+bubbleMaxSlider.addEventListener('input', (e) => {
+  if (parseFloat(bubbleMaxSlider.value) < parseFloat(bubbleMinSlider.value)) {
+    bubbleMaxSlider.value = bubbleMinSlider.value;
+  }
+  bubbleMaxInput.value = parseFloat(bubbleMaxSlider.value).toFixed(2);
+});
+
+bubbleMinInput.addEventListener('input', (e) => {
+  let val = Math.min(Math.max(parseFloat(e.target.value) || 0.01, 0.01), 2.0);
+  if (val > parseFloat(bubbleMaxInput.value)) val = parseFloat(bubbleMaxInput.value);
+  bubbleMinSlider.value = val;
+});
+
+bubbleMaxInput.addEventListener('input', (e) => {
+  let val = Math.min(Math.max(parseFloat(e.target.value) || 0.01, 0.01), 2.0);
+  if (val < parseFloat(bubbleMinInput.value)) val = parseFloat(bubbleMinInput.value);
+  bubbleMaxSlider.value = val;
+});
+
 // Trigger generation on mouse release (change)
 bubbleSizeSlider.addEventListener('change', updateBubbleView);
 bubbleSizeInput.addEventListener('change', updateBubbleView);
+bubbleMinSlider.addEventListener('change', updateBubbleView);
+bubbleMaxSlider.addEventListener('change', updateBubbleView);
+bubbleMinInput.addEventListener('change', updateBubbleView);
+bubbleMaxInput.addEventListener('change', updateBubbleView);
 bubbleArrangement.addEventListener('change', updateBubbleView);
 
 bubbleSizeMode.addEventListener('change', (e) => {
   if (e.target.value === 'uniform') {
-    bubbleSizeLabel.textContent = 'Size:';
+    uniformSizeControl.style.display = 'block';
+    rangeSizeControl.style.display = 'none';
   } else {
-    bubbleSizeLabel.textContent = 'Mean Size:';
+    uniformSizeControl.style.display = 'none';
+    rangeSizeControl.style.display = 'block';
   }
   updateBubbleView();
 });
@@ -280,6 +320,10 @@ function resetBubbleSettings() {
   // Reset sliders and inputs to defaults
   bubbleSizeSlider.value = 0.5;
   bubbleSizeInput.value = "0.50";
+  bubbleMinSlider.value = 0.25;
+  bubbleMinInput.value = "0.25";
+  bubbleMaxSlider.value = 0.75;
+  bubbleMaxInput.value = "0.75";
 
   bubbleOverlapVSlider.value = 0;
   bubbleOverlapVInput.value = 0;
@@ -292,7 +336,9 @@ function resetBubbleSettings() {
   
   bubbleArrangement.value = 'grid';
   bubbleSizeMode.value = 'uniform';
-  bubbleSizeLabel.textContent = 'Size:';
+  
+  uniformSizeControl.style.display = 'block';
+  rangeSizeControl.style.display = 'none';
 }
 
 function updateBubbleView() {
@@ -304,17 +350,27 @@ function updateBubbleView() {
   }
 
   if (bubbleModeToggle.checked) {
-    const radius = parseFloat(bubbleSizeSlider.value);
     const overlapV = parseInt(bubbleOverlapVSlider.value);
     const overlapH = parseInt(bubbleOverlapHSlider.value);
     const baseFlattenPercent = parseInt(baseFlattenSlider.value);
     const arrangement = bubbleArrangement.value;
     const sizeMode = bubbleSizeMode.value;
 
-    console.log(`[MAIN] Refresh clicked! size=${radius}, mode=${sizeMode}, overlapV=${overlapV}, overlapH=${overlapH}, flatten=${baseFlattenPercent}, arr=${arrangement}`);
+    let radius, minRadius, maxRadius;
+    if (sizeMode === 'uniform') {
+        radius = parseFloat(bubbleSizeSlider.value);
+        minRadius = radius;
+        maxRadius = radius;
+    } else {
+        minRadius = parseFloat(bubbleMinSlider.value);
+        maxRadius = parseFloat(bubbleMaxSlider.value);
+        radius = (minRadius + maxRadius) / 2;
+    }
+
+    console.log(`[MAIN] Refresh clicked! size=${radius}, min=${minRadius}, max=${maxRadius}, mode=${sizeMode}, overlapV=${overlapV}, overlapH=${overlapH}, flatten=${baseFlattenPercent}, arr=${arrangement}`);
 
     // Generate Bubbles from the ORIGINAL geometry
-    const bubbleGeo = bubbleGenerator.generateGeometry(originalMesh, radius, overlapV, overlapH, baseFlattenPercent, arrangement, sizeMode);
+    const bubbleGeo = bubbleGenerator.generateGeometry(originalMesh, radius, overlapV, overlapH, baseFlattenPercent, arrangement, sizeMode, minRadius, maxRadius);
 
     if (bubbleGeo) {
       // Hand over to Slicer for Visualization (Orange Cut + Caps)

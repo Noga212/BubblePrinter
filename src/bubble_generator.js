@@ -17,8 +17,8 @@ export class BubbleGenerator {
      * @param {number} baseFlattenPercent - How much of the first layer spheres is flattened (0-100)
      * @returns {THREE.BufferGeometry|null}
      */
-    generateGeometry(mesh, radius, overlapV = 0, overlapH = 0, baseFlattenPercent = 50, arrangement = 'grid', sizeMode = 'uniform') {
-        console.log(`[BubbleGenerator] Generating Mode: ${sizeMode}, radius ${radius}, overlapV ${overlapV}%, overlapH ${overlapH}%, baseFlatten ${baseFlattenPercent}%, arr ${arrangement}`);
+    generateGeometry(mesh, radius, overlapV = 0, overlapH = 0, baseFlattenPercent = 50, arrangement = 'grid', sizeMode = 'uniform', explicitMinRadius = null, explicitMaxRadius = null) {
+        console.log(`[BubbleGenerator] Generating Mode: ${sizeMode}, radius ${radius}, minRadius ${explicitMinRadius}, maxRadius ${explicitMaxRadius}, overlapV ${overlapV}%, overlapH ${overlapH}%, baseFlatten ${baseFlattenPercent}%, arr ${arrangement}`);
         this.bubbleSize = radius;
 
         const geometries = [];
@@ -34,8 +34,8 @@ export class BubbleGenerator {
         const overlapFactorH = 1 - (overlapH / 100);
 
         const meanRadius = radius;
-        const minRadius = meanRadius * 0.5;
-        const maxRadius = meanRadius * 1.5;
+        const minRadius = explicitMinRadius !== null ? explicitMinRadius : meanRadius * 0.5;
+        const maxRadius = explicitMaxRadius !== null ? explicitMaxRadius : meanRadius * 1.5;
         const maxShellDepth = meanRadius * 4;
 
         let firstLayerRadius = meanRadius;
