@@ -26,7 +26,7 @@
       <div class="header panel">
         <h1>Bubble<span class="brand-accent">Printer</span></h1>
         <select id="demoModelSelector" class="value-input" style="margin-right: 10px; width: 180px;">
-          <option value="" disabled selected>Load Demo Model</option>
+          <option value="" disabled selected>LOAD DEMO MODEL</option>
           <option value="./models/cube_simple.obj">Cube</option>
           <option value="./models/sphere_smooth.obj">Sphere</option>
           <option value="./models/cylinder.obj">Cylinder</option>
@@ -100,9 +100,9 @@
               <label>Arrangement:</label>
               <div class="setting-control">
                 <select id="bubbleArrangement" class="value-input" style="width: 100%;">
-                  <option value="grid">Grid</option>
-                  <option value="oranges">Oranges</option>
-                  <option value="rejection">Random</option>
+                  <option value="grid" title="Bubbles are aligned in a standard uniform grid pattern.">Grid</option>
+                  <option value="oranges" title="Bubbles are tightly packed in an alternating hexagonal pattern.">Oranges</option>
+                  <option value="rejection" title="Bubbles are placed randomly using Poisson disk sampling.">Random</option>
                 </select>
               </div>
             </div>
@@ -112,11 +112,11 @@
               <label>Size Mode:</label>
               <div class="setting-control">
                 <select id="bubbleSizeMode" class="value-input" style="width: 100%;">
-                  <option value="uniform">Uniform</option>
-                  <option value="shell_gradient_in">Shell Gradient</option>
-                  <option value="adaptive">Adaptive</option>
-                  <option value="z_gradient_down">Z-Axis (Big to Small)</option>
-                  <option value="z_gradient_up">Z-Axis (Small to Big)</option>
+                  <option value="uniform" title="All bubbles are generated with the exact same size.">Uniform</option>
+                  <option value="shell_gradient_in" title="Bubbles shrink towards the outer shell for a smoother surface.">Shell Gradient</option>
+                  <option value="adaptive" title="Bubble sizes adapt dynamically based on local detail and thickness.">Adaptive</option>
+                  <option value="z_gradient_down" title="Bubbles gradually decrease in size from bottom to top.">Z-Axis (Big to Small)</option>
+                  <option value="z_gradient_up" title="Bubbles gradually increase in size from bottom to top.">Z-Axis (Small to Big)</option>
                 </select>
               </div>
             </div>
