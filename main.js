@@ -169,6 +169,13 @@ if (ghostModelToggle) {
   });
 }
 
+const ambientLightSlider = document.getElementById('ambientLightSlider');
+if (ambientLightSlider) {
+  ambientLightSlider.addEventListener('input', (e) => {
+    ambientLight.intensity = parseFloat(e.target.value);
+  });
+}
+
 // --- Bubble Mode Logic ---
 const bubbleModeToggle = document.getElementById('bubbleModeToggle');
 const bubbleSettings = document.getElementById('bubbleSettings');
