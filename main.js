@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // Slicer & Bubble Generator
-import { setupSlicer, getModelHeight, updateSliceSettings, getCurrentMesh, getOriginalMesh, getClippingPlanes, setSliceTarget, setTargetGeometry, restoreOriginalGeometry, setGhostModelVisibility } from './src/slicer_v2.js';
-import { BubbleGenerator } from './src/bubble_generator.js?v=8';
+import { setupSlicer, getModelHeight, updateSliceSettings, getCurrentMesh, getOriginalMesh, getClippingPlanes, setSliceTarget, setTargetGeometry, restoreOriginalGeometry, setGhostModelOpacity, setBaseMaterialColor } from './src/slicer_v2.js';
+import { BubbleGenerator, GENERATOR_CONFIG } from './src/bubble_generator.js';
 
 console.log("[MAIN] BubblePrinter Version: 25 (Built-in Models)");
 
@@ -15,7 +15,7 @@ const app = document.querySelector('#app');
 
 // Scene Setup
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1a1a); // Deep Void
+scene.background = new THREE.Color(0x1a1a1a); // Deep Void (approx rgb 26, 26, 26, which is ~10%)
 
 // Grid Helper (Cura Style)
 const gridHelper = new THREE.GridHelper(50, 50, 0x008800, 0x444444); // Bright Green/Gray
@@ -76,27 +76,22 @@ const bubbleGenerator = new BubbleGenerator();
 // Event Listeners for UI
 const demoModelSelector = document.getElementById('demoModelSelector');
 
-demoModelSelector.addEventListener('change', async (e) => {
+demoModelSelector.addEventListener('change', (e) => {
   const modelUrl = e.target.value;
   if (!modelUrl) return;
 
-  try {
-    const response = await fetch(modelUrl);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-
-    resetBubbleSettings();
-    setSliceTarget(null);
-    setupSlicer(objectUrl, scene, camera, controls);
-    
-    // Reset selector so the same model can be selected again
-    demoModelSelector.value = "";
-  } catch (error) {
-    console.error("Error loading demo model:", error);
-    alert("Failed to load demo model.");
-    demoModelSelector.value = "";
-  }
+  resetBubbleSettings();
+  setSliceTarget(null);
+  
+  // Load directly via OBJLoader in setupSlicer
+  setupSlicer(modelUrl, scene, camera, controls, () => {
+    if (bubbleModeToggle.checked) {
+      updateBubbleView();
+    }
+  });
+  
+  // Reset selector so the same model can be selected again
+  demoModelSelector.value = "";
 });
 
 document.getElementById('uploadBtn').addEventListener('click', () => {
@@ -106,11 +101,13 @@ document.getElementById('uploadBtn').addEventListener('click', () => {
 document.getElementById('fileInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (file) {
-    // Reset bubble mode UI and state
-    resetBubbleSettings();
-
     setSliceTarget(null);
-    setupSlicer(URL.createObjectURL(file), scene, camera, controls);
+    setupSlicer(URL.createObjectURL(file), scene, camera, controls, () => {
+      // Note: bubble settings are kept to allow applying same style to new model
+      if (bubbleModeToggle.checked) {
+        updateBubbleView();
+      }
+    });
   }
 });
 
@@ -162,10 +159,11 @@ function applyLayerSettings() {
 layerCountInput.addEventListener('change', applyLayerSettings);
 layerHeightInput.addEventListener('change', applyLayerSettings);
 
-const ghostModelToggle = document.getElementById('ghostModelToggle');
-if (ghostModelToggle) {
-  ghostModelToggle.addEventListener('change', (e) => {
-    setGhostModelVisibility(e.target.checked);
+const ghostOpacitySlider = document.getElementById('ghostOpacitySlider');
+if (ghostOpacitySlider) {
+  ghostOpacitySlider.addEventListener('input', (e) => {
+    const opacity = parseInt(e.target.value) / 100;
+    setGhostModelOpacity(opacity);
   });
 }
 
@@ -176,12 +174,64 @@ if (ambientLightSlider) {
   });
 }
 
+const modelLightSlider = document.getElementById('modelLightSlider');
+if (modelLightSlider) {
+  modelLightSlider.addEventListener('input', (e) => {
+    directionalLight.intensity = parseFloat(e.target.value);
+  });
+}
+
+const bgBrightnessSlider = document.getElementById('bgBrightnessSlider');
+if (bgBrightnessSlider) {
+  bgBrightnessSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    const color = Math.floor((val / 100) * 255);
+    scene.background = new THREE.Color(`rgb(${color}, ${color}, ${color})`);
+  });
+}
+
+// --- Accordion UI Logic ---
+document.querySelectorAll('.accordion-header').forEach(button => {
+  button.addEventListener('click', () => {
+    const item = button.parentElement;
+    item.classList.toggle('active');
+    const content = item.querySelector('.accordion-content');
+    if (item.classList.contains('active')) {
+      content.style.display = 'flex';
+    } else {
+      content.style.display = 'none';
+    }
+  });
+});
+
+// --- Bubble Mode Constants & Defaults ---
+const BUBBLE_DEFAULTS = {
+  size: 0.5,
+  minSize: 0.25,
+  maxSize: 0.75,
+  overlapV: 0,
+  overlapH: 0,
+  baseFlatten: 50,
+  arrangement: 'grid',
+  sizeMode: 'uniform'
+};
+
+const BUBBLE_LIMITS = {
+  sizeMin: 0.01,
+  sizeMax: 2.0,
+  overlapMin: 0,
+  overlapMax: 70,
+  flattenMin: 0,
+  flattenMax: 100
+};
+
 // --- Bubble Mode Logic ---
 const bubbleModeToggle = document.getElementById('bubbleModeToggle');
-const bubbleSettings = document.getElementById('bubbleSettings');
+const bubbleSettingsContainer = document.getElementById('bubbleSettingsContainer');
 const bubbleSizeMode = document.getElementById('bubbleSizeMode');
 const bubbleSizeLabel = document.getElementById('bubbleSizeLabel');
 const bubbleArrangement = document.getElementById('bubbleArrangement');
+
 const bubbleSizeSlider = document.getElementById('bubbleSizeSlider');
 const bubbleSizeInput = document.getElementById('bubbleSizeInput');
 const bubbleOverlapVSlider = document.getElementById('bubbleOverlapVSlider');
@@ -197,159 +247,282 @@ const bubbleMinSlider = document.getElementById('bubbleMinSlider');
 const bubbleMaxSlider = document.getElementById('bubbleMaxSlider');
 const bubbleMinInput = document.getElementById('bubbleMinInput');
 const bubbleMaxInput = document.getElementById('bubbleMaxInput');
+const shellDepthControl = document.getElementById('shellDepthControl');
+const adaptiveThresholdsControl = document.getElementById('adaptiveThresholdsControl');
+const gradientCurveControl = document.getElementById('gradientCurveControl');
+const gradientExponentSlider = document.getElementById('gradientExponentSlider');
+const gradientExponentInput = document.getElementById('gradientExponentInput');
+const zAxisRangeControl = document.getElementById('zAxisRangeControl');
+const zRangeStartSlider = document.getElementById('zRangeStartSlider');
+const zRangeStartInput = document.getElementById('zRangeStartInput');
+const zRangeEndSlider = document.getElementById('zRangeEndSlider');
+const zRangeEndInput = document.getElementById('zRangeEndInput');
+
+// --- Helper for two-way binding ---
+function bindSliderAndInput(sliderElem, inputElem, minLimit, maxLimit, isFloat, onChange) {
+  sliderElem.addEventListener('input', (e) => {
+    inputElem.value = isFloat ? parseFloat(e.target.value).toFixed(2) : e.target.value;
+  });
+  inputElem.addEventListener('input', (e) => {
+    let val = isFloat ? parseFloat(e.target.value) : parseInt(e.target.value);
+    if (isNaN(val)) val = minLimit;
+    val = Math.min(Math.max(val, minLimit), maxLimit);
+    sliderElem.value = val;
+  });
+  if (onChange) {
+    sliderElem.addEventListener('change', onChange);
+    inputElem.addEventListener('change', onChange);
+  }
+}
+
+// Bind simple sliders
+bindSliderAndInput(bubbleSizeSlider, bubbleSizeInput, BUBBLE_LIMITS.sizeMin, BUBBLE_LIMITS.sizeMax, true, updateBubbleView);
+bindSliderAndInput(bubbleOverlapVSlider, bubbleOverlapVInput, BUBBLE_LIMITS.overlapMin, BUBBLE_LIMITS.overlapMax, false, updateBubbleView);
+bindSliderAndInput(bubbleOverlapHSlider, bubbleOverlapHInput, BUBBLE_LIMITS.overlapMin, BUBBLE_LIMITS.overlapMax, false, updateBubbleView);
+bindSliderAndInput(baseFlattenSlider, baseFlattenInput, BUBBLE_LIMITS.flattenMin, BUBBLE_LIMITS.flattenMax, false, updateBubbleView);
+
+// Bind Advanced Sliders
+const advShellDepthSlider = document.getElementById('advShellDepthSlider');
+const advShellDepthInput = document.getElementById('advShellDepthInput');
+const advInnerThreshSlider = document.getElementById('advInnerThreshSlider');
+const advInnerThreshInput = document.getElementById('advInnerThreshInput');
+const advOuterThreshSlider = document.getElementById('advOuterThreshSlider');
+const advOuterThreshInput = document.getElementById('advOuterThreshInput');
+const advResolution = document.getElementById('advResolution');
+const advMaxLayersInput = document.getElementById('advMaxLayersInput');
+const advMaxBubblesInput = document.getElementById('advMaxBubblesInput');
+const modelColorInput = document.getElementById('modelColorInput');
+
+if (advMaxLayersInput) {
+  advMaxLayersInput.addEventListener('change', (e) => {
+    GENERATOR_CONFIG.maxLayers = parseInt(e.target.value);
+  });
+}
+if (advMaxBubblesInput) {
+  advMaxBubblesInput.addEventListener('change', (e) => {
+    GENERATOR_CONFIG.maxBubbles3D = parseInt(e.target.value);
+  });
+}
+if (modelColorInput) {
+  modelColorInput.addEventListener('input', (e) => {
+    setBaseMaterialColor(e.target.value);
+  });
+}
+
+if (advShellDepthSlider) {
+  bindSliderAndInput(advShellDepthSlider, advShellDepthInput, 1.0, 10.0, true, (e) => {
+    GENERATOR_CONFIG.adaptiveShellDepthMultiplier = parseFloat(e.target.value);
+    updateBubbleView();
+  });
+}
+if (advInnerThreshSlider) {
+  bindSliderAndInput(advInnerThreshSlider, advInnerThreshInput, 0, 100, false, (e) => {
+    GENERATOR_CONFIG.adaptiveThresholdInner = parseInt(e.target.value) / 100;
+    updateBubbleView();
+  });
+}
+if (advOuterThreshSlider) {
+  bindSliderAndInput(advOuterThreshSlider, advOuterThreshInput, 0, 100, false, (e) => {
+    GENERATOR_CONFIG.adaptiveThresholdOuter = parseInt(e.target.value) / 100;
+    updateBubbleView();
+  });
+}
+// Bind Curve Exponent and Z Transition Range
+if (gradientExponentSlider) {
+  bindSliderAndInput(gradientExponentSlider, gradientExponentInput, 0.1, 5.0, true, (e) => {
+    GENERATOR_CONFIG.gradientExponent = parseFloat(e.target.value);
+    updateBubbleView();
+  });
+}
+
+// Bind Z-range sliders (0 to 100%)
+function updateZRangeBinding() {
+  let startVal = parseInt(zRangeStartSlider.value);
+  let endVal = parseInt(zRangeEndSlider.value);
+  
+  if (startVal > endVal) {
+    if (this === zRangeStartSlider || this === zRangeStartInput) {
+      startVal = endVal;
+      zRangeStartSlider.value = startVal;
+    } else {
+      endVal = startVal;
+      zRangeEndSlider.value = endVal;
+    }
+  }
+  
+  zRangeStartInput.value = startVal;
+  zRangeEndInput.value = endVal;
+  GENERATOR_CONFIG.zGradientStart = startVal;
+  GENERATOR_CONFIG.zGradientEnd = endVal;
+}
+
+if (zRangeStartSlider && zRangeEndSlider) {
+  [zRangeStartSlider, zRangeEndSlider].forEach(el => el.addEventListener('input', updateZRangeBinding));
+  [zRangeStartInput, zRangeEndInput].forEach(el => el.addEventListener('input', (e) => {
+    let val = Math.min(Math.max(parseInt(e.target.value) || 0, 0), 100);
+    if (e.target === zRangeStartInput) zRangeStartSlider.value = val;
+    else zRangeEndSlider.value = val;
+    updateZRangeBinding.call(e.target);
+  }));
+
+  [zRangeStartSlider, zRangeEndSlider, zRangeStartInput, zRangeEndInput].forEach(el => el.addEventListener('change', updateBubbleView));
+}
+
+// Bind range sliders (custom logic due to dependency between min/max)
+function updateRangeBinding() {
+  let minVal = parseFloat(bubbleMinSlider.value);
+  let maxVal = parseFloat(bubbleMaxSlider.value);
+  
+  if (minVal > maxVal) {
+    if (this === bubbleMinSlider || this === bubbleMinInput) {
+      minVal = maxVal;
+      bubbleMinSlider.value = minVal;
+    } else {
+      maxVal = minVal;
+      bubbleMaxSlider.value = maxVal;
+    }
+  }
+  
+  bubbleMinInput.value = minVal.toFixed(2);
+  bubbleMaxInput.value = maxVal.toFixed(2);
+}
+
+[bubbleMinSlider, bubbleMaxSlider].forEach(el => el.addEventListener('input', updateRangeBinding));
+[bubbleMinInput, bubbleMaxInput].forEach(el => el.addEventListener('input', (e) => {
+  let val = Math.min(Math.max(parseFloat(e.target.value) || BUBBLE_LIMITS.sizeMin, BUBBLE_LIMITS.sizeMin), BUBBLE_LIMITS.sizeMax);
+  if (e.target === bubbleMinInput) bubbleMinSlider.value = val;
+  else bubbleMaxSlider.value = val;
+  updateRangeBinding.call(e.target);
+}));
+
+[bubbleMinSlider, bubbleMaxSlider, bubbleMinInput, bubbleMaxInput].forEach(el => el.addEventListener('change', updateBubbleView));
 
 bubbleModeToggle.addEventListener('change', () => {
   const mesh = getCurrentMesh();
-  if (!mesh) {
-    alert("Please load a model first.");
-    bubbleModeToggle.checked = false;
-    return;
-  }
-
+  
   if (bubbleModeToggle.checked) {
-    bubbleSettings.style.display = 'block';
-    // Hide original mesh if desired? Or keep it?
-    // Usually we want to hide certain things or just overlay.
-    // For now, let's just generate.
-    // mesh.visible = false; // setTargetGeometry will remove it anyway
-    updateBubbleView();
+    bubbleSettingsContainer.style.display = 'block';
+    if (mesh) updateBubbleView();
   } else {
-    bubbleSettings.style.display = 'none';
-    // Restore original geometry
+    bubbleSettingsContainer.style.display = 'none';
     restoreOriginalGeometry(scene);
   }
 });
 
-// Sync slider -> input
-bubbleSizeSlider.addEventListener('input', (e) => {
-  bubbleSizeInput.value = parseFloat(e.target.value).toFixed(2);
-});
-
-// Sync input -> slider
-bubbleSizeInput.addEventListener('input', (e) => {
-  const val = Math.min(Math.max(parseFloat(e.target.value) || 0.01, 0.01), 2.0);
-  bubbleSizeSlider.value = val;
-});
-
-// Range controls syncing
-bubbleMinSlider.addEventListener('input', (e) => {
-  if (parseFloat(bubbleMinSlider.value) > parseFloat(bubbleMaxSlider.value)) {
-    bubbleMinSlider.value = bubbleMaxSlider.value;
-  }
-  bubbleMinInput.value = parseFloat(bubbleMinSlider.value).toFixed(2);
-});
-
-bubbleMaxSlider.addEventListener('input', (e) => {
-  if (parseFloat(bubbleMaxSlider.value) < parseFloat(bubbleMinSlider.value)) {
-    bubbleMaxSlider.value = bubbleMinSlider.value;
-  }
-  bubbleMaxInput.value = parseFloat(bubbleMaxSlider.value).toFixed(2);
-});
-
-bubbleMinInput.addEventListener('input', (e) => {
-  let val = Math.min(Math.max(parseFloat(e.target.value) || 0.01, 0.01), 2.0);
-  if (val > parseFloat(bubbleMaxInput.value)) val = parseFloat(bubbleMaxInput.value);
-  bubbleMinSlider.value = val;
-});
-
-bubbleMaxInput.addEventListener('input', (e) => {
-  let val = Math.min(Math.max(parseFloat(e.target.value) || 0.01, 0.01), 2.0);
-  if (val < parseFloat(bubbleMinInput.value)) val = parseFloat(bubbleMinInput.value);
-  bubbleMaxSlider.value = val;
-});
-
-// Trigger generation on mouse release (change)
-bubbleSizeSlider.addEventListener('change', updateBubbleView);
-bubbleSizeInput.addEventListener('change', updateBubbleView);
-bubbleMinSlider.addEventListener('change', updateBubbleView);
-bubbleMaxSlider.addEventListener('change', updateBubbleView);
-bubbleMinInput.addEventListener('change', updateBubbleView);
-bubbleMaxInput.addEventListener('change', updateBubbleView);
 bubbleArrangement.addEventListener('change', updateBubbleView);
-
 bubbleSizeMode.addEventListener('change', (e) => {
-  if (e.target.value === 'uniform') {
+  const mode = e.target.value;
+  if (mode === 'uniform') {
     uniformSizeControl.style.display = 'block';
     rangeSizeControl.style.display = 'none';
-  } else {
+    if (shellDepthControl) shellDepthControl.style.display = 'none';
+    if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'none';
+    if (gradientCurveControl) gradientCurveControl.style.display = 'none';
+    if (zAxisRangeControl) zAxisRangeControl.style.display = 'none';
+  } else if (mode === 'shell_gradient_in') {
     uniformSizeControl.style.display = 'none';
     rangeSizeControl.style.display = 'block';
+    if (shellDepthControl) shellDepthControl.style.display = 'block';
+    if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'none';
+    if (gradientCurveControl) gradientCurveControl.style.display = 'block';
+    if (zAxisRangeControl) zAxisRangeControl.style.display = 'none';
+  } else if (mode === 'adaptive') {
+    uniformSizeControl.style.display = 'none';
+    rangeSizeControl.style.display = 'block';
+    if (shellDepthControl) shellDepthControl.style.display = 'block';
+    if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'block';
+    if (gradientCurveControl) gradientCurveControl.style.display = 'none';
+    if (zAxisRangeControl) zAxisRangeControl.style.display = 'none';
+  } else {
+    // z_gradient_down or z_gradient_up
+    uniformSizeControl.style.display = 'none';
+    rangeSizeControl.style.display = 'block';
+    if (shellDepthControl) shellDepthControl.style.display = 'none';
+    if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'none';
+    if (gradientCurveControl) gradientCurveControl.style.display = 'block';
+    if (zAxisRangeControl) zAxisRangeControl.style.display = 'block';
   }
   updateBubbleView();
 });
 
-// Sync Vertical Overlap
-bubbleOverlapVSlider.addEventListener('input', (e) => {
-  bubbleOverlapVInput.value = e.target.value;
-});
-bubbleOverlapVInput.addEventListener('input', (e) => {
-  const val = Math.min(Math.max(parseInt(e.target.value) || 0, 0), 70);
-  bubbleOverlapVSlider.value = val;
-});
+if (advResolution) {
+  advResolution.addEventListener('change', (e) => {
+    if (e.target.value === 'low') {
+      GENERATOR_CONFIG.sphereWidthSegments = 8;
+      GENERATOR_CONFIG.sphereHeightSegments = 6;
+    } else if (e.target.value === 'high') {
+      GENERATOR_CONFIG.sphereWidthSegments = 32;
+      GENERATOR_CONFIG.sphereHeightSegments = 24;
+    } else {
+      GENERATOR_CONFIG.sphereWidthSegments = 16;
+      GENERATOR_CONFIG.sphereHeightSegments = 12;
+    }
+    updateBubbleView();
+  });
+}
 
-bubbleOverlapVSlider.addEventListener('change', updateBubbleView);
-bubbleOverlapVInput.addEventListener('change', updateBubbleView);
+function getBubbleConfig() {
+  const parseVal = (val, def, isFloat = false) => {
+    const parsed = isFloat ? parseFloat(val) : parseInt(val);
+    return isNaN(parsed) ? def : parsed;
+  };
 
-// Sync Horizontal Overlap
-bubbleOverlapHSlider.addEventListener('input', (e) => {
-  bubbleOverlapHInput.value = e.target.value;
-});
-bubbleOverlapHInput.addEventListener('input', (e) => {
-  const val = Math.min(Math.max(parseInt(e.target.value) || 0, 0), 70);
-  bubbleOverlapHSlider.value = val;
-});
+  return {
+    overlapV: parseVal(bubbleOverlapVSlider.value, BUBBLE_DEFAULTS.overlapV),
+    overlapH: parseVal(bubbleOverlapHSlider.value, BUBBLE_DEFAULTS.overlapH),
+    baseFlattenPercent: parseVal(baseFlattenSlider.value, BUBBLE_DEFAULTS.baseFlatten),
+    arrangement: bubbleArrangement.value || BUBBLE_DEFAULTS.arrangement,
+    sizeMode: bubbleSizeMode.value || BUBBLE_DEFAULTS.sizeMode,
+    radius: parseVal(bubbleSizeSlider.value, BUBBLE_DEFAULTS.size, true),
+    minRadius: parseVal(bubbleMinSlider.value, BUBBLE_DEFAULTS.minSize, true),
+    maxRadius: parseVal(bubbleMaxSlider.value, BUBBLE_DEFAULTS.maxSize, true)
+  };
+}
 
-bubbleOverlapHSlider.addEventListener('change', updateBubbleView);
-bubbleOverlapHInput.addEventListener('change', updateBubbleView);
-
-// Sync slider -> input for Base Flatten
-baseFlattenSlider.addEventListener('input', (e) => {
-  baseFlattenInput.value = e.target.value;
-});
-
-// Sync input -> slider for Base Flatten
-baseFlattenInput.addEventListener('input', (e) => {
-  const val = Math.min(Math.max(parseInt(e.target.value) || 0, 0), 100);
-  baseFlattenSlider.value = val;
-});
-
-baseFlattenSlider.addEventListener('change', updateBubbleView);
-baseFlattenInput.addEventListener('change', updateBubbleView);
-
-/**
- * Resets all bubble settings to default and turns off Bubble Mode.
- */
 function resetBubbleSettings() {
   console.log("[MAIN] Resetting bubble settings to defaults...");
-  bubbleModeToggle.checked = false;
-  bubbleSettings.style.display = 'none';
+  // Bubble mode is ON by default
+  bubbleModeToggle.checked = true;
+  bubbleSettingsContainer.style.display = 'block';
 
-  // Reset sliders and inputs to defaults
-  bubbleSizeSlider.value = 0.5;
-  bubbleSizeInput.value = "0.50";
-  bubbleMinSlider.value = 0.25;
-  bubbleMinInput.value = "0.25";
-  bubbleMaxSlider.value = 0.75;
-  bubbleMaxInput.value = "0.75";
+  bubbleSizeSlider.value = BUBBLE_DEFAULTS.size;
+  bubbleSizeInput.value = BUBBLE_DEFAULTS.size.toFixed(2);
+  bubbleMinSlider.value = BUBBLE_DEFAULTS.minSize;
+  bubbleMinInput.value = BUBBLE_DEFAULTS.minSize.toFixed(2);
+  bubbleMaxSlider.value = BUBBLE_DEFAULTS.maxSize;
+  bubbleMaxInput.value = BUBBLE_DEFAULTS.maxSize.toFixed(2);
 
-  bubbleOverlapVSlider.value = 0;
-  bubbleOverlapVInput.value = 0;
+  bubbleOverlapVSlider.value = BUBBLE_DEFAULTS.overlapV;
+  bubbleOverlapVInput.value = BUBBLE_DEFAULTS.overlapV;
 
-  bubbleOverlapHSlider.value = 0;
-  bubbleOverlapHInput.value = 0;
+  bubbleOverlapHSlider.value = BUBBLE_DEFAULTS.overlapH;
+  bubbleOverlapHInput.value = BUBBLE_DEFAULTS.overlapH;
 
-  baseFlattenSlider.value = 50;
-  baseFlattenInput.value = 50;
+  baseFlattenSlider.value = BUBBLE_DEFAULTS.baseFlatten;
+  baseFlattenInput.value = BUBBLE_DEFAULTS.baseFlatten;
   
-  bubbleArrangement.value = 'grid';
-  bubbleSizeMode.value = 'uniform';
+  bubbleArrangement.value = BUBBLE_DEFAULTS.arrangement;
+  bubbleSizeMode.value = BUBBLE_DEFAULTS.sizeMode;
   
-  uniformSizeControl.style.display = 'block';
-  rangeSizeControl.style.display = 'none';
+  if (gradientExponentSlider) {
+    gradientExponentSlider.value = 1.0;
+    gradientExponentInput.value = "1.00";
+    GENERATOR_CONFIG.gradientExponent = 1.0;
+  }
+  if (zRangeStartSlider && zRangeEndSlider) {
+    zRangeStartSlider.value = 0;
+    zRangeStartInput.value = 0;
+    zRangeEndSlider.value = 100;
+    zRangeEndInput.value = 100;
+    GENERATOR_CONFIG.zGradientStart = 0;
+    GENERATOR_CONFIG.zGradientEnd = 100;
+  }
+
+  // Dispatch change event to update the shown/hidden sections automatically
+  bubbleSizeMode.dispatchEvent(new Event('change'));
 }
 
 function updateBubbleView() {
-  // Use the ORIGINAL mesh, not currentMesh (which may already be bubbles)
   const originalMesh = getOriginalMesh();
   if (!originalMesh) {
     console.warn("Bubble Mode: No original mesh available.");
@@ -357,33 +530,57 @@ function updateBubbleView() {
   }
 
   if (bubbleModeToggle.checked) {
-    const overlapV = parseInt(bubbleOverlapVSlider.value);
-    const overlapH = parseInt(bubbleOverlapHSlider.value);
-    const baseFlattenPercent = parseInt(baseFlattenSlider.value);
-    const arrangement = bubbleArrangement.value;
-    const sizeMode = bubbleSizeMode.value;
+    const config = getBubbleConfig();
 
-    let radius, minRadius, maxRadius;
-    if (sizeMode === 'uniform') {
-        radius = parseFloat(bubbleSizeSlider.value);
-        minRadius = radius;
-        maxRadius = radius;
-    } else {
-        minRadius = parseFloat(bubbleMinSlider.value);
-        maxRadius = parseFloat(bubbleMaxSlider.value);
+    let radius = config.radius;
+    let minRadius = config.radius;
+    let maxRadius = config.radius;
+    
+    if (config.sizeMode !== 'uniform') {
+        minRadius = config.minRadius;
+        maxRadius = config.maxRadius;
         radius = (minRadius + maxRadius) / 2;
     }
 
-    console.log(`[MAIN] Refresh clicked! size=${radius}, min=${minRadius}, max=${maxRadius}, mode=${sizeMode}, overlapV=${overlapV}, overlapH=${overlapH}, flatten=${baseFlattenPercent}, arr=${arrangement}`);
+    console.log(`[MAIN] Refresh clicked! size=${radius}, min=${minRadius}, max=${maxRadius}, mode=${config.sizeMode}, overlapV=${config.overlapV}, overlapH=${config.overlapH}, flatten=${config.baseFlattenPercent}, arr=${config.arrangement}`);
 
     // Generate Bubbles from the ORIGINAL geometry
-    const bubbleGeo = bubbleGenerator.generateGeometry(originalMesh, radius, overlapV, overlapH, baseFlattenPercent, arrangement, sizeMode, minRadius, maxRadius);
+    const bubbleGeo = bubbleGenerator.generateGeometry(
+      originalMesh, 
+      radius, 
+      config.overlapV, 
+      config.overlapH, 
+      config.baseFlattenPercent, 
+      config.arrangement, 
+      config.sizeMode, 
+      minRadius, 
+      maxRadius
+    );
 
     if (bubbleGeo) {
-      // Hand over to Slicer for Visualization (Orange Cut + Caps)
       setTargetGeometry(bubbleGeo, scene, false);
     } else {
       console.warn("Bubble Mode: No geometry generated.");
     }
   }
 }
+
+// Automatically load a random test model on startup
+setTimeout(() => {
+  const demoModels = [
+    "./models/cube_simple.obj", 
+    "./models/sphere_smooth.obj",
+    "./models/cylinder.obj",
+    "./models/cone_smooth.obj",
+    "./models/pyramid.obj",
+    "./models/octahedron.obj",
+    "./models/tetrahedron.obj",
+    "./models/torus_complex.obj"
+  ];
+  const randomModel = demoModels[Math.floor(Math.random() * demoModels.length)];
+  
+  if (demoModelSelector) {
+    demoModelSelector.value = randomModel;
+    demoModelSelector.dispatchEvent(new Event('change'));
+  }
+}, 100);

@@ -1,25 +1,34 @@
 import * as THREE from 'three';
-import { getSliceContours } from './geometry_utils_v2.js';
+import { getSliceContours, distanceToContours, getOrangesPointsInContours, getRejectionSamplingPointsInContours, getGridPointsInContours, isPointInContours } from './geometry_utils_v2.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
+export const GENERATOR_CONFIG = {
+    maxLayers: 2000,
+    maxBubbles3D: 6000,
+    maxIterations3D: 300000,
+    sphereWidthSegments: 16,
+    sphereHeightSegments: 12,
+    adaptiveShellDepthMultiplier: 3.0,
+    adaptiveThresholdInner: 0.33,
+    adaptiveThresholdOuter: 0.66,
+    gradientExponent: 1.0,
+    zGradientStart: 0,
+    zGradientEnd: 100
+};
+
 export class BubbleGenerator {
-    constructor() {
-        // No scene or mesh management anymore. Pure logic.
-        this.bubbleSize = 0.5;
-    }
 
     /**
-     * Generates a merged BufferGeometry of bubbles based on the input mesh.
-     * @param {THREE.Object3D} mesh - The reference mesh to voxelize
-     * @param {number} radius - Radius of bubbles
-     * @param {number} overlapV - Vertical overlap percentage (0-70)
-     * @param {number} overlapH - Horizontal overlap percentage (0-70)
-     * @param {number} baseFlattenPercent - How much of the first layer spheres is flattened (0-100)
+     * Merged BufferGeometry of bubbles based on the input mesh.
+     * @param {THREE.Object3D} mesh - Reference mesh to slice
+     * @param {number} radius - Mean radius of bubbles
+     * @param {number} overlapV - Vertical overlap percentage
+     * @param {number} overlapH - Horizontal overlap percentage
+     * @param {number} baseFlattenPercent - Flattening of the first layer
      * @returns {THREE.BufferGeometry|null}
      */
     generateGeometry(mesh, radius, overlapV = 0, overlapH = 0, baseFlattenPercent = 50, arrangement = 'grid', sizeMode = 'uniform', explicitMinRadius = null, explicitMaxRadius = null) {
         console.log(`[BubbleGenerator] Generating Mode: ${sizeMode}, radius ${radius}, minRadius ${explicitMinRadius}, maxRadius ${explicitMaxRadius}, overlapV ${overlapV}%, overlapH ${overlapH}%, baseFlatten ${baseFlattenPercent}%, arr ${arrangement}`);
-        this.bubbleSize = radius;
 
         const geometries = [];
 
@@ -60,10 +69,28 @@ export class BubbleGenerator {
             let currentLayerRadius = meanRadius;
             let currentZProgress = (maxZ > minZ) ? Math.max(0, Math.min(1, (centerZ - minZ) / (maxZ - minZ))) : 0;
             
+            // Map transition range
+            let t = 0;
+            const startT = (GENERATOR_CONFIG.zGradientStart !== undefined ? GENERATOR_CONFIG.zGradientStart : 0) / 100;
+            const endT = (GENERATOR_CONFIG.zGradientEnd !== undefined ? GENERATOR_CONFIG.zGradientEnd : 100) / 100;
+            if (currentZProgress <= startT) {
+                t = 0;
+            } else if (currentZProgress >= endT) {
+                t = 1;
+            } else {
+                t = (currentZProgress - startT) / (endT - startT);
+            }
+
+            // Apply curve exponent
+            const exponent = GENERATOR_CONFIG.gradientExponent !== undefined ? GENERATOR_CONFIG.gradientExponent : 1.0;
+            if (exponent !== 1.0) {
+                t = Math.pow(t, exponent);
+            }
+
             if (sizeMode === 'z_gradient_down') {
-                currentLayerRadius = maxRadius - currentZProgress * (maxRadius - minRadius);
+                currentLayerRadius = maxRadius - t * (maxRadius - minRadius);
             } else if (sizeMode === 'z_gradient_up') {
-                currentLayerRadius = minRadius + currentZProgress * (maxRadius - minRadius);
+                currentLayerRadius = minRadius + t * (maxRadius - minRadius);
             }
 
             // If the bottom of the current bubble is above maxZ, we stop.
@@ -80,11 +107,11 @@ export class BubbleGenerator {
                 let horizontalStep = (currentLayerRadius * 2) * overlapFactorH;
 
                 if (arrangement === 'oranges') {
-                    points = this.getOrangesPointsInContours(contours, box, horizontalStep, layerIndex);
+                    points = getOrangesPointsInContours(contours, box, horizontalStep, layerIndex);
                 } else if (arrangement === 'rejection') {
-                    points = this.getRejectionSamplingPointsInContours(contours, box, horizontalStep, layerIndex);
+                    points = getRejectionSamplingPointsInContours(contours, box, horizontalStep, layerIndex);
                 } else {
-                    points = this.getGridPointsInContours(contours, box, horizontalStep);
+                    points = getGridPointsInContours(contours, box, horizontalStep);
                 }
 
                 points.forEach(p => {
@@ -92,9 +119,9 @@ export class BubbleGenerator {
 
                     let geo;
                     if (layerIndex === 0) {
-                        geo = new THREE.SphereGeometry(currentLayerRadius, 16, 12, 0, Math.PI * 2, 0, thetaLength);
+                        geo = new THREE.SphereGeometry(currentLayerRadius, GENERATOR_CONFIG.sphereWidthSegments, GENERATOR_CONFIG.sphereHeightSegments, 0, Math.PI * 2, 0, thetaLength);
                     } else {
-                        geo = new THREE.SphereGeometry(currentLayerRadius, 16, 12);
+                        geo = new THREE.SphereGeometry(currentLayerRadius, GENERATOR_CONFIG.sphereWidthSegments, GENERATOR_CONFIG.sphereHeightSegments);
                     }
 
                     // Rotate ALL spheres so poles are on the Z axis (Vertical).
@@ -113,12 +140,18 @@ export class BubbleGenerator {
             layerIndex++;
 
             // Safety break
-            if (layerIndex > 2000) break;
+            if (layerIndex > GENERATOR_CONFIG.maxLayers) break;
         }
 
         if (geometries.length > 0) {
             console.log(`[BubbleGenerator] Merged ${geometries.length} bubbles.`);
-            return BufferGeometryUtils.mergeGeometries(geometries);
+            const mergedGeo = BufferGeometryUtils.mergeGeometries(geometries);
+            mergedGeo.computeBoundingBox();
+            const minZ = mergedGeo.boundingBox.min.z;
+            if (minZ !== 0) {
+                mergedGeo.translate(0, 0, -minZ);
+            }
+            return mergedGeo;
         } else {
             console.warn('[BubbleGenerator] No bubbles generated.');
             return null;
@@ -146,14 +179,18 @@ export class BubbleGenerator {
         };
 
         const evaluateRadius = (x, y, z, contours) => {
-            const dist = this.distanceToContours(x, y, contours);
-            const maxShellDepth = maxRadius * 3;
+            const dist = distanceToContours(x, y, contours);
+            const maxShellDepth = maxRadius * GENERATOR_CONFIG.adaptiveShellDepthMultiplier;
             if (sizeMode === 'adaptive') {
-                if (dist < maxShellDepth * 0.33) return minRadius;
-                if (dist < maxShellDepth * 0.66) return minRadius + (maxRadius - minRadius) / 2;
+                if (dist < maxShellDepth * GENERATOR_CONFIG.adaptiveThresholdInner) return minRadius;
+                if (dist < maxShellDepth * GENERATOR_CONFIG.adaptiveThresholdOuter) return minRadius + (maxRadius - minRadius) / 2;
                 return maxRadius;
             } else {
-                const t = Math.min(dist / maxShellDepth, 1.0);
+                let t = Math.min(dist / maxShellDepth, 1.0);
+                const exponent = GENERATOR_CONFIG.gradientExponent !== undefined ? GENERATOR_CONFIG.gradientExponent : 1.0;
+                if (exponent !== 1.0) {
+                    t = Math.pow(t, exponent);
+                }
                 return minRadius + t * (maxRadius - minRadius);
             }
         };
@@ -170,7 +207,7 @@ export class BubbleGenerator {
         };
 
         const minSpacing = minRadius * 2 * overlapFactorH;
-        const initialPoints = this.getGridPointsInContours(firstLayerContours, box, minSpacing);
+        const initialPoints = getGridPointsInContours(firstLayerContours, box, minSpacing);
         
         initialPoints.forEach(p => {
             const r = evaluateRadius(p.x, p.y, startZ, firstLayerContours);
@@ -193,9 +230,8 @@ export class BubbleGenerator {
         const sRand = () => { let x = Math.sin(seed++) * 10000; return x - Math.floor(x); };
 
         let iter = 0;
-        const MAX_ITER = 300000;
         
-        while (active.length > 0 && iter++ < MAX_ITER) {
+        while (active.length > 0 && iter++ < GENERATOR_CONFIG.maxIterations3D) {
             const idx = Math.floor(sRand() * active.length);
             const b = active[idx];
             let added = false;
@@ -215,7 +251,7 @@ export class BubbleGenerator {
                 
                 if (tempZ < minZ || tempZ > maxZ) continue;
                 const contours = getContours(tempZ);
-                if (!this.isPointInContours(tempX, tempY, contours)) continue;
+                if (!isPointInContours(tempX, tempY, contours)) continue;
                 
                 const r = evaluateRadius(tempX, tempY, tempZ, contours);
                 
@@ -225,7 +261,7 @@ export class BubbleGenerator {
                 
                 if (cz < minZ || cz > maxZ) continue;
                 const finalContours = getContours(cz);
-                if (!this.isPointInContours(cx, cy, finalContours)) continue;
+                if (!isPointInContours(cx, cy, finalContours)) continue;
                 
                 let overlap = false;
                 const hx = Math.floor(cx/cellSize);
@@ -267,202 +303,31 @@ export class BubbleGenerator {
             }
             
             if (!added) active.splice(idx, 1);
-            if (bubbles.length > 6000) break;
+            if (bubbles.length > GENERATOR_CONFIG.maxBubbles3D) break;
         }
 
         bubbles.forEach(b => {
             const matrix = new THREE.Matrix4().makeTranslation(b.x, b.y, b.z);
             let geo;
             if (Math.abs(b.z - startZ) < 0.1) {
-                geo = new THREE.SphereGeometry(b.radius, 16, 12, 0, Math.PI * 2, 0, thetaLength);
+                geo = new THREE.SphereGeometry(b.radius, GENERATOR_CONFIG.sphereWidthSegments, GENERATOR_CONFIG.sphereHeightSegments, 0, Math.PI * 2, 0, thetaLength);
             } else {
-                geo = new THREE.SphereGeometry(b.radius, 16, 12);
+                geo = new THREE.SphereGeometry(b.radius, GENERATOR_CONFIG.sphereWidthSegments, GENERATOR_CONFIG.sphereHeightSegments);
             }
             geo.rotateX(Math.PI / 2);
             geometries.push(geo.clone().applyMatrix4(matrix));
         });
 
         console.log(`[BubbleGenerator] 3D Packing produced ${bubbles.length} bubbles.`);
-        if (geometries.length > 0) return BufferGeometryUtils.mergeGeometries(geometries);
+        if (geometries.length > 0) {
+            const mergedGeo = BufferGeometryUtils.mergeGeometries(geometries);
+            mergedGeo.computeBoundingBox();
+            const minZ = mergedGeo.boundingBox.min.z;
+            if (minZ !== 0) {
+                mergedGeo.translate(0, 0, -minZ);
+            }
+            return mergedGeo;
+        }
         return null;
-    }
-
-    /**
-     * Calculates shortest distance from point to any contour edge
-     */
-    distanceToContours(x, y, contours) {
-        let minDist = Infinity;
-        for (const polygon of contours) {
-            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-                const xi = polygon[i][0], yi = polygon[i][1];
-                const xj = polygon[j][0], yj = polygon[j][1];
-                
-                // Point to line segment distance
-                const l2 = (xi - xj) ** 2 + (yi - yj) ** 2;
-                if (l2 === 0) {
-                    minDist = Math.min(minDist, Math.hypot(x - xi, y - yi));
-                    continue;
-                }
-                
-                let t = ((x - xi) * (xj - xi) + (y - yi) * (yj - yi)) / l2;
-                t = Math.max(0, Math.min(1, t));
-                
-                const projX = xi + t * (xj - xi);
-                const projY = yi + t * (yj - yi);
-                
-                minDist = Math.min(minDist, Math.hypot(x - projX, y - projY));
-            }
-        }
-        return minDist;
-    }
-
-
-    /**
-     * Returns true hexagonal close packing points.
-     */
-    getOrangesPointsInContours(contours, box, spacing, layerIndex) {
-        const points = [];
-        // True hex packing row spacing
-        const rowSpacing = spacing * Math.sqrt(3) / 2;
-
-        const startN = Math.floor((box.min.x - spacing) / spacing);
-        const endN = Math.ceil((box.max.x + spacing) / spacing);
-
-        const startM = Math.floor((box.min.y - rowSpacing) / rowSpacing);
-        const endM = Math.ceil((box.max.y + rowSpacing) / rowSpacing);
-
-        const layerOffsetX = (layerIndex % 2 !== 0) ? spacing / 2 : 0;
-        const layerOffsetY = (layerIndex % 2 !== 0) ? rowSpacing / 3 : 0;
-
-        for (let m = startM; m <= endM; m++) {
-            const y = m * rowSpacing + (rowSpacing / 2) + layerOffsetY;
-            // Alternating rows shift by half spacing
-            const rowOffsetX = (m % 2 !== 0) ? spacing / 2 : 0;
-            
-            for (let n = startN; n <= endN; n++) {
-                const x = n * spacing + (spacing / 2) + rowOffsetX + layerOffsetX;
-
-                if (this.isPointInContours(x, y, contours)) {
-                    points.push({ x, y });
-                }
-            }
-        }
-        return points;
-    }
-
-    // Simple seeded random function
-    seededRandom(seed) {
-        let x = Math.sin(seed) * 10000;
-        return x - Math.floor(x);
-    }
-
-    getRejectionSamplingPointsInContours(contours, box, spacing, layerIndex) {
-        const points = [];
-        const cellSize = spacing / Math.sqrt(2); 
-        const grid = new Map();
-
-        let seed = layerIndex * 1337 + 1; // Basic seed per layer
-        const maxAttempts = 200;
-        let rejections = 0;
-        
-        const width = box.max.x - box.min.x;
-        const height = box.max.y - box.min.y;
-
-        // Ensure width and height are positive and large enough
-        if (width <= 0 || height <= 0) return points;
-
-        const maxIter = Math.floor((width * height) / (spacing * spacing)) * 10;
-
-        for (let i = 0; i < maxIter && rejections < maxAttempts; i++) {
-            const rx = box.min.x + this.seededRandom(seed++) * width;
-            const ry = box.min.y + this.seededRandom(seed++) * height;
-
-            if (!this.isPointInContours(rx, ry, contours)) {
-                continue; // Not a rejection, just not in mesh
-            }
-
-            // Spatial Hash Check
-            const gx = Math.floor(rx / cellSize);
-            const gy = Math.floor(ry / cellSize);
-            let tooClose = false;
-
-            for (let dx = -2; dx <= 2; dx++) {
-                for (let dy = -2; dy <= 2; dy++) {
-                    const key = `${gx + dx},${gy + dy}`;
-                    if (grid.has(key)) {
-                        const cellPoints = grid.get(key);
-                        for (const p of cellPoints) {
-                            const distSq = (p.x - rx) ** 2 + (p.y - ry) ** 2;
-                            if (distSq < spacing * spacing) {
-                                tooClose = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if (tooClose) break;
-            }
-
-            if (!tooClose) {
-                points.push({ x: rx, y: ry });
-                const key = `${gx},${gy}`;
-                if (!grid.has(key)) grid.set(key, []);
-                grid.get(key).push({ x: rx, y: ry });
-                rejections = 0;
-            } else {
-                rejections++;
-            }
-        }
-        return points;
-    }
-
-    /**
-     * Returns grid points (x, y) that are inside the contours.
-     * Truly absolute world-grid anchored at (0,0).
-     */
-    getGridPointsInContours(contours, box, spacing) {
-        const points = [];
-        
-        const centerX = (box.min.x + box.max.x) / 2;
-        const centerY = (box.min.y + box.max.y) / 2;
-
-        // Find the range of indices 'n' that cover the bounding box relative to center
-        const startN = Math.floor((box.min.x - centerX - spacing) / spacing);
-        const endN = Math.ceil((box.max.x - centerX + spacing) / spacing);
-
-        const startM = Math.floor((box.min.y - centerY - spacing) / spacing);
-        const endM = Math.ceil((box.max.y - centerY + spacing) / spacing);
-
-        for (let n = startN; n <= endN; n++) {
-            const x = centerX + n * spacing;
-            for (let m = startM; m <= endM; m++) {
-                const y = centerY + m * spacing;
-
-                // Check if (x,y) is inside any contour
-                if (this.isPointInContours(x, y, contours)) {
-                    points.push({ x, y });
-                }
-            }
-        }
-        return points;
-    }
-
-    /**
-     * Ray casting algorithm to check if point is inside contours.
-     */
-    isPointInContours(x, y, contours) {
-        let inside = false;
-        for (const polygon of contours) {
-            // polygon is array of [x, y]
-            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-                const xi = polygon[i][0], yi = polygon[i][1];
-                const xj = polygon[j][0], yj = polygon[j][1];
-
-                const intersect = ((yi > y) !== (yj > y)) &&
-                    (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-                if (intersect) inside = !inside;
-            }
-        }
-        return inside;
     }
 }

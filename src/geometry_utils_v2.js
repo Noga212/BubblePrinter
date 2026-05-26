@@ -193,3 +193,181 @@ function stitchSegments(segments) {
     console.log(`[GeoUtils] Stitched ${loops.length} loops.`);
     return loops;
 }
+
+/**
+ * Calculates shortest distance from point to any contour edge
+ */
+export function distanceToContours(x, y, contours) {
+    let minDist = Infinity;
+    for (const polygon of contours) {
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i][0], yi = polygon[i][1];
+            const xj = polygon[j][0], yj = polygon[j][1];
+            
+            // Point to line segment distance
+            const l2 = (xi - xj) ** 2 + (yi - yj) ** 2;
+            if (l2 === 0) {
+                minDist = Math.min(minDist, Math.hypot(x - xi, y - yi));
+                continue;
+            }
+            
+            let t = ((x - xi) * (xj - xi) + (y - yi) * (yj - yi)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            
+            const projX = xi + t * (xj - xi);
+            const projY = yi + t * (yj - yi);
+            
+            minDist = Math.min(minDist, Math.hypot(x - projX, y - projY));
+        }
+    }
+    return minDist;
+}
+
+/**
+ * Returns true hexagonal close packing points.
+ */
+export function getOrangesPointsInContours(contours, box, spacing, layerIndex) {
+    const points = [];
+    // True hex packing row spacing
+    const rowSpacing = spacing * Math.sqrt(3) / 2;
+
+    const startN = Math.floor((box.min.x - spacing) / spacing);
+    const endN = Math.ceil((box.max.x + spacing) / spacing);
+
+    const startM = Math.floor((box.min.y - rowSpacing) / rowSpacing);
+    const endM = Math.ceil((box.max.y + rowSpacing) / rowSpacing);
+
+    const layerOffsetX = (layerIndex % 2 !== 0) ? spacing / 2 : 0;
+    const layerOffsetY = (layerIndex % 2 !== 0) ? rowSpacing / 3 : 0;
+
+    for (let m = startM; m <= endM; m++) {
+        const y = m * rowSpacing + (rowSpacing / 2) + layerOffsetY;
+        // Alternating rows shift by half spacing
+        const rowOffsetX = (m % 2 !== 0) ? spacing / 2 : 0;
+        
+        for (let n = startN; n <= endN; n++) {
+            const x = n * spacing + (spacing / 2) + rowOffsetX + layerOffsetX;
+
+            if (isPointInContours(x, y, contours)) {
+                points.push({ x, y });
+            }
+        }
+    }
+    return points;
+}
+
+// Simple seeded random function
+export function seededRandom(seed) {
+    let x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+}
+
+export function getRejectionSamplingPointsInContours(contours, box, spacing, layerIndex) {
+    const points = [];
+    const cellSize = spacing / Math.sqrt(2); 
+    const grid = new Map();
+
+    let seed = layerIndex * 1337 + 1; // Basic seed per layer
+    const maxAttempts = 200;
+    let rejections = 0;
+    
+    const width = box.max.x - box.min.x;
+    const height = box.max.y - box.min.y;
+
+    // Ensure width and height are positive and large enough
+    if (width <= 0 || height <= 0) return points;
+
+    const maxIter = Math.floor((width * height) / (spacing * spacing)) * 10;
+
+    for (let i = 0; i < maxIter && rejections < maxAttempts; i++) {
+        const rx = box.min.x + seededRandom(seed++) * width;
+        const ry = box.min.y + seededRandom(seed++) * height;
+
+        if (!isPointInContours(rx, ry, contours)) {
+            continue; // Not a rejection, just not in mesh
+        }
+
+        // Spatial Hash Check
+        const gx = Math.floor(rx / cellSize);
+        const gy = Math.floor(ry / cellSize);
+        let tooClose = false;
+
+        for (let dx = -2; dx <= 2; dx++) {
+            for (let dy = -2; dy <= 2; dy++) {
+                const key = `${gx + dx},${gy + dy}`;
+                if (grid.has(key)) {
+                    const cellPoints = grid.get(key);
+                    for (const p of cellPoints) {
+                        const distSq = (p.x - rx) ** 2 + (p.y - ry) ** 2;
+                        if (distSq < spacing * spacing) {
+                            tooClose = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (tooClose) break;
+        }
+
+        if (!tooClose) {
+            points.push({ x: rx, y: ry });
+            const key = `${gx},${gy}`;
+            if (!grid.has(key)) grid.set(key, []);
+            grid.get(key).push({ x: rx, y: ry });
+            rejections = 0;
+        } else {
+            rejections++;
+        }
+    }
+    return points;
+}
+
+/**
+ * Returns grid points (x, y) that are inside the contours.
+ * Truly absolute world-grid anchored at (0,0).
+ */
+export function getGridPointsInContours(contours, box, spacing) {
+    const points = [];
+    
+    const centerX = (box.min.x + box.max.x) / 2;
+    const centerY = (box.min.y + box.max.y) / 2;
+
+    // Find the range of indices 'n' that cover the bounding box relative to center
+    const startN = Math.floor((box.min.x - centerX - spacing) / spacing);
+    const endN = Math.ceil((box.max.x - centerX + spacing) / spacing);
+
+    const startM = Math.floor((box.min.y - centerY - spacing) / spacing);
+    const endM = Math.ceil((box.max.y - centerY + spacing) / spacing);
+
+    for (let n = startN; n <= endN; n++) {
+        const x = centerX + (n + 0.5) * spacing;
+        for (let m = startM; m <= endM; m++) {
+            const y = centerY + (m + 0.5) * spacing;
+
+            // Check if (x,y) is inside any contour
+            if (isPointInContours(x, y, contours)) {
+                points.push({ x, y });
+            }
+        }
+    }
+    return points;
+}
+
+/**
+ * Ray casting algorithm to check if point is inside contours.
+ */
+export function isPointInContours(x, y, contours) {
+    let inside = false;
+    for (const polygon of contours) {
+        // polygon is array of [x, y]
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i][0], yi = polygon[i][1];
+            const xj = polygon[j][0], yj = polygon[j][1];
+
+            const intersect = ((yi > y) !== (yj > y)) &&
+                (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+    }
+    return inside;
+}

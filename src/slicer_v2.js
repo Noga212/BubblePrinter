@@ -16,7 +16,41 @@ const topClipPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);    // Keeps
 const loader = new OBJLoader();
 let modelHeight = 10; // Dynamic current height
 let originalModelHeight = 10; // Saved original height
+let baseColor = new THREE.Color(0xffaa00); // Default Orange
 
+/**
+ * Creates a ghost mesh with standard ghost material settings.
+ * @param {THREE.Object3D|THREE.BufferGeometry} source 
+ * @param {THREE.Plane} clippingPlane 
+ * @returns {THREE.Object3D}
+ */
+function createGhostMesh(source, clippingPlane) {
+    let ghost;
+    if (source.isBufferGeometry) {
+        ghost = new THREE.Mesh(source);
+    } else {
+        ghost = source.clone();
+    }
+    
+    const ghostMat = new THREE.MeshBasicMaterial({
+        color: 0x888888,
+        transparent: true,
+        opacity: 0.15,
+        side: THREE.DoubleSide,
+        clippingPlanes: [clippingPlane],
+        depthWrite: false,
+    });
+    
+    ghost.traverse((child) => {
+        if (child.isMesh) {
+            child.material = ghostMat;
+            child.castShadow = false;
+            child.receiveShadow = false;
+        }
+    });
+    
+    return ghost;
+}
 
 /**
  * Extracts raw (x, y) coordinates of the intersection of the object with plane Z = z0.
@@ -78,7 +112,7 @@ export function getSlicePoints(object, z0) {
     return points;
 }
 
-export function setupSlicer(url, scene, camera, controls) {
+export function setupSlicer(url, scene, camera, controls, onLoadCallback = null) {
     // Clean up previous mesh and slice
     if (currentMesh) {
         scene.remove(currentMesh);
@@ -150,7 +184,7 @@ export function setupSlicer(url, scene, camera, controls) {
             if (child.isMesh) {
                 // SOLID BOTTOM MATERIAL
                 child.material = new THREE.MeshPhongMaterial({
-                    color: 0xffaa00, // Orange
+                    color: baseColor,
                     emissive: 0x222222,
                     specular: 0x111111,
                     shininess: 30,
@@ -169,28 +203,13 @@ export function setupSlicer(url, scene, camera, controls) {
         scene.add(object);
 
         // CREATE GHOST OBJECT (Top Half)
-        ghostMesh = object.clone();
-        ghostMesh.traverse((child) => {
-            if (child.isMesh) {
-                // GHOST TOP MATERIAL
-                child.material = new THREE.MeshBasicMaterial({
-                    color: 0x888888,
-                    transparent: true,
-                    opacity: 0.15,
-                    side: THREE.DoubleSide,
-                    clippingPlanes: [topClipPlane],
-                    depthWrite: false, // Don't block the solid object
-                });
-                child.castShadow = false;
-                child.receiveShadow = false;
-            }
-        });
+        ghostMesh = createGhostMesh(object, topClipPlane);
         scene.add(ghostMesh);
 
-        // Initialize Ghost Model Visibility
-        const ghostToggle = document.getElementById('ghostModelToggle');
-        if (ghostToggle) {
-            ghostMesh.visible = ghostToggle.checked;
+        // Initialize Ghost Model Opacity
+        const ghostOpacitySlider = document.getElementById('ghostOpacitySlider');
+        if (ghostOpacitySlider) {
+            setGhostModelOpacity(parseInt(ghostOpacitySlider.value) / 100);
         }
 
         // Adjust camera target
@@ -317,6 +336,13 @@ export function setupSlicer(url, scene, camera, controls) {
         slider.dispatchEvent(new Event('input'));
 
         console.log("Model loaded with Z-up", object);
+
+        if (onLoadCallback) {
+            // Defer the callback to allow the browser to render the initial model first
+            setTimeout(() => {
+                onLoadCallback();
+            }, 50);
+        }
     }, undefined, (error) => {
         console.error('An error happened', error);
     });
@@ -441,26 +467,12 @@ export function restoreOriginalGeometry(scene) {
     // Actually setTargetGeometry disposes ghostMesh.
     // So we need to recreate Ghost for original.
 
-    ghostMesh = originalMesh.clone();
-    ghostMesh.traverse((child) => {
-        if (child.isMesh) {
-            child.material = new THREE.MeshBasicMaterial({
-                color: 0x888888,
-                transparent: true,
-                opacity: 0.15,
-                side: THREE.DoubleSide,
-                clippingPlanes: [topClipPlane],
-                depthWrite: false,
-            });
-            child.castShadow = false;
-            child.receiveShadow = false;
-        }
-    });
+    ghostMesh = createGhostMesh(originalMesh, topClipPlane);
     scene.add(ghostMesh);
 
-    const ghostToggle = document.getElementById('ghostModelToggle');
-    if (ghostToggle) {
-        ghostMesh.visible = ghostToggle.checked;
+    const ghostOpacitySlider = document.getElementById('ghostOpacitySlider');
+    if (ghostOpacitySlider) {
+        setGhostModelOpacity(parseInt(ghostOpacitySlider.value) / 100);
     }
 
     setSliceTarget(currentMesh);
@@ -502,7 +514,7 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
     }
 
     const material = new THREE.MeshPhongMaterial({
-        color: 0xffaa00, // Orange
+        color: baseColor,
         emissive: 0x222222,
         specular: 0x111111,
         shininess: 30,
@@ -520,26 +532,12 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
     scene.add(mesh);
 
     // 3. Create Ghost Mesh (Top/Ghost)
-    // We clone the geometry for the ghost to avoid shared state issues if we need them separate (though referencing same geo is usually fine, cloning is safer for disposal logic)
-    // ACTUALLY: Cloning geometry is expensive. Let's reuse if possible, or shallow clone.
-    // But `setTargetGeometry` passed a fresh `bubbleGeo`.
-    // Let's use the same geometry but different material.
-    const ghostMat = new THREE.MeshBasicMaterial({
-        color: 0xababab, // Slightly lighter grey
-        transparent: true,
-        opacity: 0.15,
-        side: THREE.DoubleSide,
-        clippingPlanes: [topClipPlane],
-        depthWrite: false, // Important for ghosts
-    });
-
-    // Reuse geometry?
-    ghostMesh = new THREE.Mesh(geometry, ghostMat);
+    ghostMesh = createGhostMesh(geometry, topClipPlane);
     scene.add(ghostMesh);
     
-    const ghostToggle = document.getElementById('ghostModelToggle');
-    if (ghostToggle) {
-        ghostMesh.visible = ghostToggle.checked;
+    const ghostOpacitySlider = document.getElementById('ghostOpacitySlider');
+    if (ghostOpacitySlider) {
+        setGhostModelOpacity(parseInt(ghostOpacitySlider.value) / 100);
     }
     console.log("[Slicer] Ghost Mesh created and added.");
 
@@ -569,10 +567,26 @@ export function setSliceTarget(mesh) {
     }
 }
 
-export function setGhostModelVisibility(visible) {
-    console.log(`[Slicer] Toggling Ghost Mesh Visibility: ${visible}, ghostMesh exists: ${!!ghostMesh}`);
+export function setGhostModelOpacity(opacity) {
+    console.log(`[Slicer] Setting Ghost Mesh Opacity: ${opacity}, ghostMesh exists: ${!!ghostMesh}`);
     if (ghostMesh) {
-        ghostMesh.visible = visible;
+        ghostMesh.visible = opacity > 0;
+        ghostMesh.traverse((child) => {
+            if (child.isMesh && child.material) {
+                child.material.opacity = opacity;
+            }
+        });
+    }
+}
+
+export function setBaseMaterialColor(hexString) {
+    baseColor = new THREE.Color(hexString);
+    if (currentMesh) {
+        currentMesh.traverse((child) => {
+            if (child.isMesh && child.material) {
+                child.material.color = baseColor;
+            }
+        });
     }
 }
 
