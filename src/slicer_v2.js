@@ -16,7 +16,7 @@ const topClipPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);    // Keeps
 const loader = new OBJLoader();
 let modelHeight = 10; // Dynamic current height
 let originalModelHeight = 10; // Saved original height
-let baseColor = new THREE.Color(0xffaa00); // Default Orange
+export let baseColor = new THREE.Color(0xffaa00); // Default Orange
 
 /**
  * Creates a ghost mesh with standard ghost material settings.
