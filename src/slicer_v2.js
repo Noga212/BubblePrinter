@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 
-import { getSliceContours } from './geometry_utils_v2.js';
+import { getSliceContours, getVoronoiCells2D } from './geometry_utils_v2.js';
 
 let currentMesh = null;
 let originalMesh = null; // Store original loaded mesh
@@ -18,6 +18,98 @@ let modelHeight = 10; // Dynamic current height
 let originalModelHeight = 10; // Saved original height
 export let baseColor = new THREE.Color(0xffaa00); // Default Orange
 
+// Cached bubbles for analytic slicing and canvas visualization
+let currentBubbles = null;
+export let visualizationConfig = {
+    mode: 'spheres',
+    heatmap: 'none'
+};
+
+export function setBubbleData(bubbles) {
+    currentBubbles = bubbles;
+}
+
+export function getBubbleContours(bubbles, z) {
+    const contours = [];
+    const segments = 24;
+    for (const b of bubbles) {
+        const distZ = Math.abs(b.z - z);
+        if (distZ < b.radius) {
+            const rCircle = Math.sqrt(b.radius * b.radius - distZ * distZ);
+            if (rCircle > 0.001) {
+                const contour = [];
+                for (let i = 0; i < segments; i++) {
+                    const theta = (i / segments) * Math.PI * 2;
+                    const x = b.x + Math.cos(theta) * rCircle;
+                    const y = b.y - Math.sin(theta) * rCircle;
+                    contour.push([x, y]);
+                }
+                contours.push(contour);
+            }
+        }
+    }
+    return contours;
+}
+
+function drawCentersToCanvas(ctx, bubbles, z, width, height) {
+    ctx.fillStyle = '#00E5FF';
+    const scale = 20;
+    const cx = width / 2;
+    const cy = height / 2;
+    
+    for (const b of bubbles) {
+        if (Math.abs(b.z - z) < b.radius) {
+            ctx.beginPath();
+            ctx.arc(cx + b.x * scale, cy - b.y * scale, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+}
+
+function drawVoronoiToCanvas(ctx, bubbles, z, width, height) {
+    const zLayers = [...new Set(bubbles.map(b => b.z))];
+    if (zLayers.length === 0) return;
+    zLayers.sort((a, b) => a - b);
+    
+    let closestZ = zLayers[0];
+    let minDist = Math.abs(z - closestZ);
+    for (const lz of zLayers) {
+        const d = Math.abs(z - lz);
+        if (d < minDist) {
+            minDist = d;
+            closestZ = lz;
+        }
+    }
+    
+    if (minDist > 0.6) return;
+    
+    const layerBubbles = bubbles.filter(b => b.z === closestZ);
+    if (layerBubbles.length === 0) return;
+    
+    const unshiftedZ = layerBubbles[0].unshiftedZ !== undefined ? layerBubbles[0].unshiftedZ : closestZ;
+    const contours = getSliceContours(originalMesh, unshiftedZ);
+    if (contours.length === 0) return;
+    
+    const box = new THREE.Box3().setFromObject(originalMesh);
+    const points = layerBubbles.map(b => ({ x: b.x, y: b.y }));
+    const cells = getVoronoiCells2D(points, box, contours);
+    
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
+    ctx.lineWidth = 1;
+    const scale = 20;
+    const cx = width / 2;
+    const cy = height / 2;
+    
+    for (const cell of cells) {
+        for (const seg of cell.segments) {
+            ctx.beginPath();
+            ctx.moveTo(cx + seg.p1.x * scale, cy - seg.p1.y * scale);
+            ctx.lineTo(cx + seg.p2.x * scale, cy - seg.p2.y * scale);
+            ctx.stroke();
+        }
+    }
+}
+
 /**
  * Creates a ghost mesh with standard ghost material settings.
  * @param {THREE.Object3D|THREE.BufferGeometry} source 
@@ -26,14 +118,22 @@ export let baseColor = new THREE.Color(0xffaa00); // Default Orange
  */
 function createGhostMesh(source, clippingPlane) {
     let ghost;
+    let hasColors = false;
     if (source.isBufferGeometry) {
         ghost = new THREE.Mesh(source);
+        hasColors = !!source.attributes.color;
     } else {
         ghost = source.clone();
+        ghost.traverse((child) => {
+            if (child.isMesh && child.geometry && child.geometry.attributes.color) {
+                hasColors = true;
+            }
+        });
     }
     
     const ghostMat = new THREE.MeshBasicMaterial({
         color: 0x888888,
+        vertexColors: hasColors,
         transparent: true,
         opacity: 0.15,
         side: THREE.DoubleSide,
@@ -274,13 +374,23 @@ export function setupSlicer(url, scene, camera, controls, onLoadCallback = null)
 
             // Debug / UI Update
             const typeLabel = document.querySelector('.slice-preview-panel h3');
+            const isBubbles = activeSliceTarget && activeSliceTarget !== originalMesh;
             if (typeLabel) {
-                const isBubbles = activeSliceTarget && activeSliceTarget !== originalMesh;
                 typeLabel.textContent = isBubbles ? '2D Slice Preview (Bubbles)' : '2D Slice Preview (Original)';
             }
 
-            console.log(`[Slicer] Slicing target: ${activeSliceTarget ? 'BubbleMesh' : 'OriginalMesh'} at Z=${z0.toFixed(2)}`);
-            const polygons = getSliceContours(target, z0);
+            console.log(`[Slicer] Slicing target: ${isBubbles ? 'BubbleMesh' : 'OriginalMesh'} at Z=${z0.toFixed(2)}`);
+            
+            let polygons = [];
+            if (isBubbles && currentBubbles) {
+                if (visualizationConfig.mode === 'spheres') {
+                    polygons = getBubbleContours(currentBubbles, z0);
+                } else {
+                    polygons = getSliceContours(originalMesh, z0);
+                }
+            } else {
+                polygons = getSliceContours(target, z0);
+            }
 
             if (polygons.length > 0) {
                 // 1. Draw Contours (Blue Line) - Only if caps enabled (or make a separate setting? For now link to caps)
@@ -339,6 +449,14 @@ export function setupSlicer(url, scene, camera, controls, onLoadCallback = null)
             if (canvas) {
                 const ctx = canvas.getContext('2d');
                 drawSliceToCanvas(ctx, polygons, canvas.width, canvas.height);
+                
+                if (isBubbles && currentBubbles) {
+                    if (visualizationConfig.mode === 'voronoi') {
+                        drawVoronoiToCanvas(ctx, currentBubbles, z0, canvas.width, canvas.height);
+                    } else if (visualizationConfig.mode === 'centers') {
+                        drawCentersToCanvas(ctx, currentBubbles, z0, canvas.width, canvas.height);
+                    }
+                }
             }
         };
 
@@ -500,30 +618,34 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
         // Cleanup existing bubbles
         if (currentMesh && currentMesh !== originalMesh) {
             scene.remove(currentMesh);
+            currentMesh.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                    else child.material.dispose();
+                }
+            });
             if (currentMesh.geometry) currentMesh.geometry.dispose();
             if (currentMesh.material) {
-                if (Array.isArray(currentMesh.material)) {
-                    currentMesh.material.forEach(m => m.dispose());
-                } else {
-                    currentMesh.material.dispose();
-                }
+                if (Array.isArray(currentMesh.material)) currentMesh.material.forEach(m => m.dispose());
+                else currentMesh.material.dispose();
             }
             currentMesh = null;
         }
         if (ghostMesh) {
             scene.remove(ghostMesh);
             ghostMesh.traverse((child) => {
-                if (child.isMesh) {
-                    if (child.geometry) child.geometry.dispose();
-                    if (child.material) {
-                        if (Array.isArray(child.material)) {
-                            child.material.forEach(m => m.dispose());
-                        } else {
-                            child.material.dispose();
-                        }
-                    }
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                    else child.material.dispose();
                 }
             });
+            if (ghostMesh.geometry) ghostMesh.geometry.dispose();
+            if (ghostMesh.material) {
+                if (Array.isArray(ghostMesh.material)) ghostMesh.material.forEach(m => m.dispose());
+                else ghostMesh.material.dispose();
+            }
             ghostMesh = null;
         }
         setSliceTarget(null);
@@ -536,13 +658,17 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
     if (currentMesh) {
         scene.remove(currentMesh);
         if (currentMesh !== originalMesh) {
+            currentMesh.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                    else child.material.dispose();
+                }
+            });
             if (currentMesh.geometry) currentMesh.geometry.dispose();
             if (currentMesh.material) {
-                if (Array.isArray(currentMesh.material)) {
-                    currentMesh.material.forEach(m => m.dispose());
-                } else {
-                    currentMesh.material.dispose();
-                }
+                if (Array.isArray(currentMesh.material)) currentMesh.material.forEach(m => m.dispose());
+                else currentMesh.material.dispose();
             }
         }
     }
@@ -550,29 +676,60 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
         scene.remove(ghostMesh);
         if (currentMesh !== originalMesh) {
             ghostMesh.traverse((child) => {
-                if (child.isMesh) {
-                    if (child.geometry) child.geometry.dispose();
-                    if (child.material) {
-                        if (Array.isArray(child.material)) {
-                            child.material.forEach(m => m.dispose());
-                        } else {
-                            child.material.dispose();
-                        }
-                    }
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                    else child.material.dispose();
                 }
             });
+            if (ghostMesh.geometry) ghostMesh.geometry.dispose();
+            if (ghostMesh.material) {
+                if (Array.isArray(ghostMesh.material)) ghostMesh.material.forEach(m => m.dispose());
+                else ghostMesh.material.dispose();
+            }
         }
         ghostMesh = null;
     }
 
-    // 2. Create Solid Mesh (Bottom)
-    // Ensure normals are computed for Phong material
+    // 2. Handle Object3D vs BufferGeometry
+    if (geometry instanceof THREE.Object3D) {
+        currentMesh = geometry;
+        scene.add(currentMesh);
+
+        const ghostOverride = arguments[3] || null;
+        if (ghostOverride) {
+            ghostMesh = ghostOverride;
+            scene.add(ghostMesh);
+            const ghostOpacitySlider = document.getElementById('ghostOpacitySlider');
+            if (ghostOpacitySlider) {
+                setGhostModelOpacity(parseInt(ghostOpacitySlider.value) / 100);
+            }
+        } else {
+            ghostMesh = null;
+        }
+
+        const box = new THREE.Box3().setFromObject(geometry);
+        if (box) {
+            modelHeight = box.max.z || originalModelHeight;
+        } else {
+            modelHeight = originalModelHeight;
+        }
+
+        useCaps = renderCaps;
+        setSliceTarget(currentMesh);
+        return;
+    }
+
+    // 3. Create Solid Mesh (Bottom)
     if (!geometry.attributes.normal) {
         geometry.computeVertexNormals();
     }
 
+    const hasColors = !!geometry.attributes.color;
+    const isHeatmap = hasColors && (visualizationConfig.heatmap !== 'none');
     const material = new THREE.MeshPhongMaterial({
-        color: baseColor,
+        color: isHeatmap ? 0xffffff : baseColor,
+        vertexColors: hasColors,
         emissive: 0x222222,
         specular: 0x111111,
         shininess: 30,
@@ -589,7 +746,7 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
     currentMesh = mesh;
     scene.add(mesh);
 
-    // 3. Create Ghost Mesh (Top/Ghost)
+    // 4. Create Ghost Mesh (Top/Ghost)
     ghostMesh = createGhostMesh(geometry, topClipPlane);
     scene.add(ghostMesh);
     
@@ -606,7 +763,7 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
         console.log("Updated modelHeight for bubbles:", modelHeight);
     }
 
-    // 4. Update Slice Target
+    // 5. Update Slice Target
     useCaps = renderCaps; // Update state
     setSliceTarget(currentMesh);
 }
@@ -642,7 +799,9 @@ export function setBaseMaterialColor(hexString) {
     if (currentMesh) {
         currentMesh.traverse((child) => {
             if (child.isMesh && child.material) {
-                child.material.color = baseColor;
+                const hasColors = child.geometry && child.geometry.attributes.color;
+                const isHeatmap = hasColors && (visualizationConfig.heatmap !== 'none');
+                child.material.color = isHeatmap ? new THREE.Color(0xffffff) : baseColor;
             }
         });
     }

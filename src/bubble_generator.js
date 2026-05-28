@@ -11,6 +11,7 @@ export class BubbleGenerator {
      * @returns {THREE.BufferGeometry|null}
      */
     generateGeometry(mesh, config, advanced) {
+        this.bubbles = []; // Initialize bubble data
         let radius = config.radius;
         let minRadius = config.radius;
         let maxRadius = config.radius;
@@ -151,6 +152,7 @@ export class BubbleGenerator {
                         break;
                     }
                     const p = points[k];
+                    this.bubbles.push({ x: p.x, y: p.y, z: centerZ, radius: currentLayerRadius, layerIndex, unshiftedZ: centerZ });
                     const matrix = new THREE.Matrix4().makeTranslation(p.x, p.y, centerZ);
 
                     let geo;
@@ -187,6 +189,9 @@ export class BubbleGenerator {
             const minZ = mergedGeo.boundingBox.min.z;
             if (minZ !== 0) {
                 mergedGeo.translate(0, 0, -minZ);
+                if (this.bubbles) {
+                    this.bubbles.forEach(b => b.z -= minZ);
+                }
             }
             return mergedGeo;
         } else {
@@ -451,7 +456,9 @@ export class BubbleGenerator {
             if (b.z < minCenterZ) minCenterZ = b.z;
         });
 
-        finalBubbles.forEach(b => {
+        this.bubbles = []; // Initialize for 3D path
+        finalBubbles.forEach((b, idx) => {
+            this.bubbles.push({ x: b.x, y: b.y, z: b.z, radius: b.radius, layerIndex: Math.round((b.z - minCenterZ) / (meanRadius * 2 * overlapFactorV)), unshiftedZ: b.z });
             const matrix = new THREE.Matrix4().makeTranslation(b.x, b.y, b.z);
             let geo;
             if (Math.abs(b.z - minCenterZ) < 0.1) {
@@ -463,13 +470,16 @@ export class BubbleGenerator {
             geometries.push(geo.clone().applyMatrix4(matrix));
         });
 
-        console.log(`[BubbleGenerator] 3D Packing produced ${bubbles.length} bubbles.`);
+        console.log(`[BubbleGenerator] 3D Packing produced ${finalBubbles.length} bubbles.`);
         if (geometries.length > 0) {
             const mergedGeo = BufferGeometryUtils.mergeGeometries(geometries);
             mergedGeo.computeBoundingBox();
             const minZ = mergedGeo.boundingBox.min.z;
             if (minZ !== 0) {
                 mergedGeo.translate(0, 0, -minZ);
+                if (this.bubbles) {
+                    this.bubbles.forEach(b => b.z -= minZ);
+                }
             }
             return mergedGeo;
         }

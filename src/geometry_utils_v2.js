@@ -584,6 +584,182 @@ export function applyLloydRelaxation(points, contours, box, spacing, iterations)
 }
 
 /**
+ * Classic Sutherland-Hodgman algorithm to clip a convex polygon by a half-plane.
+ * The half-plane is defined by a point M on its boundary line and a normal vector N pointing inside.
+ * @param {Array<{x: number, y: number}>} poly 
+ * @param {{x: number, y: number}} M 
+ * @param {{x: number, y: number}} N 
+ * @returns {Array<{x: number, y: number}>}
+ */
+export function clipPolygon(poly, M, N) {
+    const output = [];
+    if (poly.length === 0) return output;
+
+    const isInside = (pt) => {
+        return (pt.x - M.x) * N.x + (pt.y - M.y) * N.y >= 0;
+    };
+
+    const intersect = (p1, p2) => {
+        const d1 = (p1.x - M.x) * N.x + (p1.y - M.y) * N.y;
+        const d2 = (p2.x - M.x) * N.x + (p2.y - M.y) * N.y;
+        const diff = d1 - d2;
+        if (Math.abs(diff) < 1e-10) return p1;
+        const t = d1 / diff;
+        return {
+            x: p1.x + t * (p2.x - p1.x),
+            y: p1.y + t * (p2.y - p1.y)
+        };
+    };
+
+    let s = poly[poly.length - 1];
+    for (const p of poly) {
+        if (isInside(p)) {
+            if (!isInside(s)) {
+                output.push(intersect(s, p));
+            }
+            output.push(p);
+        } else if (isInside(s)) {
+            output.push(intersect(s, p));
+        }
+        s = p;
+    }
+    return output;
+}
+
+/**
+ * Returns the intersection point of two line segments p1-p2 and c1-c2, or null if none.
+ */
+export function getLineSegmentIntersection(p1, p2, c1, c2) {
+    const det = (p2.x - p1.x) * (c2.y - c1.y) - (p2.y - p1.y) * (c2.x - c1.x);
+    if (Math.abs(det) < 1e-9) return null; // Parallel
+
+    const t = ((c1.x - p1.x) * (c2.y - c1.y) - (c1.y - p1.y) * (c2.x - c1.x)) / det;
+    const u = ((c1.x - p1.x) * (p2.y - p1.y) - (c1.y - p1.y) * (p2.x - p1.x)) / det;
+
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+        return {
+            x: p1.x + t * (p2.x - p1.x),
+            y: p1.y + t * (p2.y - p1.y)
+        };
+    }
+    return null;
+}
+
+/**
+ * Clips a line segment p1-p2 to the inside of 2D contours.
+ * Returns an array of segment objects [{p1, p2}].
+ */
+export function clipSegmentToContours(p1, p2, contours) {
+    const inside1 = isPointInContours(p1.x, p1.y, contours);
+    const inside2 = isPointInContours(p2.x, p2.y, contours);
+
+    if (inside1 && inside2) {
+        return [{ p1, p2 }];
+    }
+
+    // Find all intersections
+    const intersections = [];
+    for (const poly of contours) {
+        for (let i = 0; i < poly.length; i++) {
+            const nextIdx = (i + 1) % poly.length;
+            const c1 = { x: poly[i][0], y: poly[i][1] };
+            const c2 = { x: poly[nextIdx][0], y: poly[nextIdx][1] };
+
+            const intersect = getLineSegmentIntersection(p1, p2, c1, c2);
+            if (intersect) {
+                if (!intersections.some(pt => Math.hypot(pt.x - intersect.x, pt.y - intersect.y) < 1e-5)) {
+                    intersections.push(intersect);
+                }
+            }
+        }
+    }
+
+    // Sort intersections by distance from p1
+    intersections.sort((a, b) => {
+        const distA = (a.x - p1.x) ** 2 + (a.y - p1.y) ** 2;
+        const distB = (b.x - p1.x) ** 2 + (b.y - p1.y) ** 2;
+        return distA - distB;
+    });
+
+    const pts = [p1, ...intersections, p2];
+    const segments = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+        const mid = { x: (pts[i].x + pts[i+1].x) / 2, y: (pts[i].y + pts[i+1].y) / 2 };
+        if (isPointInContours(mid.x, mid.y, contours)) {
+            segments.push({ p1: pts[i], p2: pts[i+1] });
+        }
+    }
+    return segments;
+}
+
+/**
+ * Computes 2D Voronoi cells for a set of points, clipped by the bounding box and layer contours.
+ * @param {Array<{x: number, y: number}>} points 
+ * @param {THREE.Box3} box 
+ * @param {Array<Array<[number, number]>>} contours 
+ * @returns {Array<{index: number, segments: Array<{p1, p2}>, cellPolygon: Array<{x, y}>}>}
+ */
+export function getVoronoiCells2D(points, box, contours) {
+    const cells = [];
+    if (points.length === 0) return cells;
+
+    // Expand bounding box slightly for initial cells
+    const padding = 2.0;
+    const bMinX = box.min.x - padding;
+    const bMaxX = box.max.x + padding;
+    const bMinY = box.min.y - padding;
+    const bMaxY = box.max.y + padding;
+
+    const getInitialCell = () => [
+        { x: bMinX, y: bMinY },
+        { x: bMaxX, y: bMinY },
+        { x: bMaxX, y: bMaxY },
+        { x: bMinX, y: bMaxY }
+    ];
+
+    for (let i = 0; i < points.length; i++) {
+        const pi = points[i];
+        let cell = getInitialCell();
+
+        // Find neighbors and sort by distance
+        const neighbors = [];
+        for (let j = 0; j < points.length; j++) {
+            if (i === j) continue;
+            const pj = points[j];
+            const dSq = (pi.x - pj.x) ** 2 + (pi.y - pj.y) ** 2;
+            neighbors.push({ index: j, distSq: dSq, pt: pj });
+        }
+        neighbors.sort((a, b) => a.distSq - b.distSq);
+
+        const limit = Math.min(neighbors.length, 40);
+        for (let k = 0; k < limit; k++) {
+            const pj = neighbors[k].pt;
+            const M = { x: (pi.x + pj.x) / 2, y: (pi.y + pj.y) / 2 };
+            const N = { x: pi.x - pj.x, y: pi.y - pj.y };
+            cell = clipPolygon(cell, M, N);
+            if (cell.length < 3) break;
+        }
+
+        if (cell.length >= 3) {
+            const clippedSegments = [];
+            for (let k = 0; k < cell.length; k++) {
+                const nextIdx = (k + 1) % cell.length;
+                const p1 = cell[k];
+                const p2 = cell[nextIdx];
+                const segments = clipSegmentToContours(p1, p2, contours);
+                clippedSegments.push(...segments);
+            }
+            cells.push({
+                index: i,
+                segments: clippedSegments,
+                cellPolygon: cell
+            });
+        }
+    }
+    return cells;
+}
+
+/**
  * Performs 3D discretized Voronoi Lloyd's Relaxation inside the 3D mesh.
  */
 export function apply3DLloydRelaxation(bubbles, mesh, box, meanRadius, iterations) {

@@ -341,7 +341,75 @@
             </div>
           </div>
 
-          <!-- 6. Appearance -->
+          <!-- 6. Visualization -->
+          <div class="accordion-item">
+            <button class="accordion-header">Visualization</button>
+            <div class="accordion-content">
+              <div class="setting-row" title="Choose how bubbles are represented visually.">
+                <label>Render Mode:</label>
+                <div class="setting-control">
+                  <select id="visRenderMode" class="value-input" style="width: 100%;">
+                    <option value="spheres" selected>Spheres</option>
+                    <option value="centers">Centers Only</option>
+                    <option value="voronoi">Voronoi Cells</option>
+                  </select>
+                </div>
+              </div>
+              <div class="setting-row" title="Color coding applied to the bubble representation.">
+                <label>Heatmap Mode:</label>
+                <div class="setting-control">
+                  <select id="visHeatmapMode" class="value-input" style="width: 100%;">
+                    <option value="none" selected>None</option>
+                    <option value="density">Density</option>
+                    <option value="z-height">Z-Height</option>
+                    <option value="radial">Radial Distance</option>
+                  </select>
+                </div>
+              </div>
+              <div id="visPaletteGroup" class="setting-row" style="display: none;" title="The color scheme for the heatmap.">
+                <label>Palette:</label>
+                <div class="setting-control">
+                  <select id="visPalette" class="value-input" style="width: 100%;">
+                    <option value="jet" selected>Jet (Rainbow)</option>
+                    <option value="viridis">Viridis</option>
+                    <option value="magma">Magma</option>
+                    <option value="coolwarm">Cool-Warm</option>
+                  </select>
+                </div>
+              </div>
+              <div class="setting-row" title="Apply Ambient Occlusion shadows for depth.">
+                <label>AO Shadows:</label>
+                <div class="setting-control">
+                  <select id="visAO" class="value-input" style="width: 100%;">
+                    <option value="none" selected>Off</option>
+                    <option value="on">On</option>
+                  </select>
+                </div>
+              </div>
+              <div id="visDensityRadiusGroup" class="setting-group" style="display: none;">
+                <div class="setting-row" title="Search radius factor for computing bubble density.">
+                  <label>Density Radius:</label>
+                  <div class="setting-control">
+                    <input type="number" id="visDensityRadiusInput" min="0.5" max="5.0" step="0.1" value="1.5" class="value-input">
+                    <span class="unit-label">x</span>
+                  </div>
+                </div>
+                <input type="range" id="visDensityRadiusSlider" min="0.5" max="5.0" step="0.1" value="1.5" class="horizontal-slider">
+              </div>
+              <div id="visCenterSizeGroup" class="setting-group" style="display: none;">
+                <div class="setting-row" title="Radius of the center point markers in millimeters.">
+                  <label>Node Size:</label>
+                  <div class="setting-control">
+                    <input type="number" id="visCenterSizeInput" min="0.02" max="0.5" step="0.01" value="0.10" class="value-input">
+                    <span class="unit-label">mm</span>
+                  </div>
+                </div>
+                <input type="range" id="visCenterSizeSlider" min="0.02" max="0.5" step="0.01" value="0.10" class="horizontal-slider">
+              </div>
+            </div>
+          </div>
+
+          <!-- 7. Appearance -->
           <div class="accordion-item">
             <button class="accordion-header">Appearance</button>
             <div class="accordion-content">
