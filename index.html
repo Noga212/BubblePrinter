@@ -42,7 +42,7 @@
 
       <div class="slice-preview-panel panel">
         <h3>2D Slice Preview</h3>
-        <canvas id="sliceCanvas" width="300" height="300"></canvas>
+        <canvas id="sliceCanvas" width="200" height="200"></canvas>
       </div>
 
       <!-- Settings Panel (Right Side) -->
@@ -132,9 +132,45 @@
                         <option value="grid" selected>Grid</option>
                         <option value="oranges">Oranges</option>
                         <option value="rejection">Random</option>
+                        <option value="poisson">Poisson</option>
                       </select>
                     </div>
                   </div>
+                </div>
+
+                <!-- Poisson Radius Control (Active only in Poisson Mode) -->
+                <div id="poissonRadiusControl" class="setting-group" style="display: none;">
+                  <div class="setting-row" title="The radius of the Poisson disk in millimeters.">
+                    <label>Poisson Radius:</label>
+                    <div class="setting-control">
+                      <input type="number" id="poissonRadiusInput" min="0.05" max="2.0" step="0.01" value="0.5" class="value-input">
+                      <span class="unit-label">mm</span>
+                    </div>
+                  </div>
+                  <input type="range" id="poissonRadiusSlider" min="0.05" max="2.0" step="0.01" value="0.5" class="horizontal-slider">
+                </div>
+
+                <!-- Lloyd Iterations Control (Active only in Random and Poisson Modes) -->
+                <div id="lloydIterationsControl" class="setting-group" style="display: none;">
+                  <div class="setting-row" title="Number of Lloyd's Relaxation iterations.">
+                    <label>Lloyd Iterations:</label>
+                    <div class="setting-control">
+                      <input type="number" id="lloydIterationsInput" min="0" max="20" step="1" value="0" class="value-input">
+                    </div>
+                  </div>
+                  <input type="range" id="lloydIterationsSlider" min="0" max="20" step="1" value="0" class="horizontal-slider">
+                </div>
+
+                <!-- Jitter Control (Active only in Grid and Oranges Modes) -->
+                <div id="jitterControl" class="setting-group" style="display: none;">
+                  <div class="setting-row" title="The jitter displacement multiplier relative to the bubble's radius.">
+                    <label>Jitter:</label>
+                    <div class="setting-control">
+                      <input type="number" id="jitterInput" min="0" max="100" step="1" value="0" class="value-input">
+                      <span class="unit-label">%</span>
+                    </div>
+                  </div>
+                  <input type="range" id="jitterSlider" min="0" max="100" step="1" value="0" class="horizontal-slider">
                 </div>
                 <div class="setting-group">
                   <div class="setting-row" title="The sizing mode used for the bubbles.">

@@ -26,6 +26,9 @@ const AppState = {
     radius: 0.5,
     minRadius: 0.25,
     maxRadius: 0.75,
+    poissonRadius: 0.5,
+    lloydIterations: 0,
+    jitterPercent: 0,
     overlapV: 0,
     overlapH: 0,
     baseFlattenPercent: 50,
@@ -311,6 +314,11 @@ bindState(document.getElementById('bubbleOverlapVSlider'), document.getElementBy
 bindState(document.getElementById('bubbleOverlapHSlider'), document.getElementById('bubbleOverlapHInput'), 'bubble', 'overlapH', false, 0, 70, updateBubbleView);
 bindState(document.getElementById('baseFlattenSlider'), document.getElementById('baseFlattenInput'), 'bubble', 'baseFlattenPercent', false, 0, 100, updateBubbleView);
 
+// New bindings
+bindState(document.getElementById('poissonRadiusSlider'), document.getElementById('poissonRadiusInput'), 'bubble', 'poissonRadius', true, 0.05, 2.0, updateBubbleView);
+bindState(document.getElementById('lloydIterationsSlider'), document.getElementById('lloydIterationsInput'), 'bubble', 'lloydIterations', false, 0, 20, updateBubbleView);
+bindState(document.getElementById('jitterSlider'), document.getElementById('jitterInput'), 'bubble', 'jitterPercent', false, 0, 100, updateBubbleView);
+
 // Advanced specific bindState calls
 bindState(document.getElementById('advShellDepthSlider'), document.getElementById('advShellDepthInput'), 'advanced', 'shellDepthMultiplier', true, 1.0, 10.0, updateBubbleView);
 bindState(document.getElementById('advInnerThreshSlider'), document.getElementById('advInnerThreshInput'), 'advanced', 'innerThreshold', false, 0, 100, updateBubbleView);
@@ -446,9 +454,80 @@ if (bubbleModeToggle) {
   });
 }
 
+function restoreSizeControls(mode) {
+  if (mode === 'uniform') {
+    if (uniformSizeControl) uniformSizeControl.style.display = 'block';
+    if (rangeSizeControl) rangeSizeControl.style.display = 'none';
+    if (shellDepthControl) shellDepthControl.style.display = 'none';
+    if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'none';
+    if (gradientCurveControl) gradientCurveControl.style.display = 'none';
+    if (zAxisRangeControl) zAxisRangeControl.style.display = 'none';
+  } else if (mode === 'shell_gradient_in') {
+    if (uniformSizeControl) uniformSizeControl.style.display = 'none';
+    if (rangeSizeControl) rangeSizeControl.style.display = 'block';
+    if (shellDepthControl) shellDepthControl.style.display = 'block';
+    if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'none';
+    if (gradientCurveControl) gradientCurveControl.style.display = 'block';
+    if (zAxisRangeControl) zAxisRangeControl.style.display = 'none';
+  } else if (mode === 'adaptive') {
+    if (uniformSizeControl) uniformSizeControl.style.display = 'none';
+    if (rangeSizeControl) rangeSizeControl.style.display = 'block';
+    if (shellDepthControl) shellDepthControl.style.display = 'block';
+    if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'block';
+    if (gradientCurveControl) gradientCurveControl.style.display = 'none';
+    if (zAxisRangeControl) zAxisRangeControl.style.display = 'none';
+  } else {
+    // z_gradient_down or z_gradient_up
+    if (uniformSizeControl) uniformSizeControl.style.display = 'none';
+    if (rangeSizeControl) rangeSizeControl.style.display = 'block';
+    if (shellDepthControl) shellDepthControl.style.display = 'none';
+    if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'none';
+    if (gradientCurveControl) gradientCurveControl.style.display = 'block';
+    if (zAxisRangeControl) zAxisRangeControl.style.display = 'block';
+  }
+}
+
+function updateControlVisibility() {
+  const arrangement = AppState.bubble.arrangement;
+  const sizeMode = AppState.bubble.sizeMode;
+
+  const poissonRadiusControl = document.getElementById('poissonRadiusControl');
+  const lloydIterationsControl = document.getElementById('lloydIterationsControl');
+  const jitterControl = document.getElementById('jitterControl');
+  
+  const sizeModeSelect = document.getElementById('bubbleSizeMode');
+  const sizeModeGroup = sizeModeSelect ? sizeModeSelect.closest('.setting-group') : null;
+
+
+
+  if (arrangement === 'poisson') {
+    if (poissonRadiusControl) poissonRadiusControl.style.display = 'block';
+    if (lloydIterationsControl) lloydIterationsControl.style.display = 'block';
+    if (jitterControl) jitterControl.style.display = 'none';
+    if (sizeModeGroup) sizeModeGroup.style.display = 'block';
+
+    restoreSizeControls(sizeMode);
+  } else if (arrangement === 'rejection') {
+    if (poissonRadiusControl) poissonRadiusControl.style.display = 'none';
+    if (lloydIterationsControl) lloydIterationsControl.style.display = 'block';
+    if (jitterControl) jitterControl.style.display = 'none';
+    if (sizeModeGroup) sizeModeGroup.style.display = 'block';
+    
+    restoreSizeControls(sizeMode);
+  } else if (arrangement === 'grid' || arrangement === 'oranges') {
+    if (poissonRadiusControl) poissonRadiusControl.style.display = 'none';
+    if (lloydIterationsControl) lloydIterationsControl.style.display = 'none';
+    if (jitterControl) jitterControl.style.display = 'block';
+    if (sizeModeGroup) sizeModeGroup.style.display = 'block';
+    
+    restoreSizeControls(sizeMode);
+  }
+}
+
 if (bubbleArrangement) {
   bubbleArrangement.addEventListener('change', (e) => {
     AppState.bubble.arrangement = e.target.value;
+    updateControlVisibility();
     updateBubbleView();
   });
 }
@@ -456,38 +535,7 @@ if (bubbleArrangement) {
 if (bubbleSizeMode) {
   bubbleSizeMode.addEventListener('change', (e) => {
     AppState.bubble.sizeMode = e.target.value;
-    const mode = AppState.bubble.sizeMode;
-    
-    if (mode === 'uniform') {
-      if (uniformSizeControl) uniformSizeControl.style.display = 'block';
-      if (rangeSizeControl) rangeSizeControl.style.display = 'none';
-      if (shellDepthControl) shellDepthControl.style.display = 'none';
-      if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'none';
-      if (gradientCurveControl) gradientCurveControl.style.display = 'none';
-      if (zAxisRangeControl) zAxisRangeControl.style.display = 'none';
-    } else if (mode === 'shell_gradient_in') {
-      if (uniformSizeControl) uniformSizeControl.style.display = 'none';
-      if (rangeSizeControl) rangeSizeControl.style.display = 'block';
-      if (shellDepthControl) shellDepthControl.style.display = 'block';
-      if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'none';
-      if (gradientCurveControl) gradientCurveControl.style.display = 'block';
-      if (zAxisRangeControl) zAxisRangeControl.style.display = 'none';
-    } else if (mode === 'adaptive') {
-      if (uniformSizeControl) uniformSizeControl.style.display = 'none';
-      if (rangeSizeControl) rangeSizeControl.style.display = 'block';
-      if (shellDepthControl) shellDepthControl.style.display = 'block';
-      if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'block';
-      if (gradientCurveControl) gradientCurveControl.style.display = 'none';
-      if (zAxisRangeControl) zAxisRangeControl.style.display = 'none';
-    } else {
-      // z_gradient_down or z_gradient_up
-      if (uniformSizeControl) uniformSizeControl.style.display = 'none';
-      if (rangeSizeControl) rangeSizeControl.style.display = 'block';
-      if (shellDepthControl) shellDepthControl.style.display = 'none';
-      if (adaptiveThresholdsControl) adaptiveThresholdsControl.style.display = 'none';
-      if (gradientCurveControl) gradientCurveControl.style.display = 'block';
-      if (zAxisRangeControl) zAxisRangeControl.style.display = 'block';
-    }
+    updateControlVisibility();
     updateBubbleView();
   });
 }
@@ -501,6 +549,9 @@ function resetBubbleSettings() {
   AppState.bubble.radius = 0.5;
   AppState.bubble.minRadius = 0.25;
   AppState.bubble.maxRadius = 0.75;
+  AppState.bubble.poissonRadius = 0.5;
+  AppState.bubble.lloydIterations = 0;
+  AppState.bubble.jitterPercent = 0;
   AppState.bubble.overlapV = 0;
   AppState.bubble.overlapH = 0;
   AppState.bubble.baseFlattenPercent = 50;
@@ -525,6 +576,9 @@ function resetBubbleSettings() {
   setUI('bubbleSizeSlider', 'bubbleSizeInput', AppState.bubble.radius, true);
   setUI('bubbleMinSlider', 'bubbleMinInput', AppState.bubble.minRadius, true);
   setUI('bubbleMaxSlider', 'bubbleMaxInput', AppState.bubble.maxRadius, true);
+  setUI('poissonRadiusSlider', 'poissonRadiusInput', AppState.bubble.poissonRadius, true);
+  setUI('lloydIterationsSlider', 'lloydIterationsInput', AppState.bubble.lloydIterations, false);
+  setUI('jitterSlider', 'jitterInput', AppState.bubble.jitterPercent, false);
   setUI('bubbleOverlapVSlider', 'bubbleOverlapVInput', AppState.bubble.overlapV, false);
   setUI('bubbleOverlapHSlider', 'bubbleOverlapHInput', AppState.bubble.overlapH, false);
   setUI('baseFlattenSlider', 'baseFlattenInput', AppState.bubble.baseFlattenPercent, false);
@@ -538,10 +592,9 @@ function resetBubbleSettings() {
   if (bubbleArrangement) bubbleArrangement.value = AppState.bubble.arrangement;
   if (bubbleSizeMode) {
     bubbleSizeMode.value = AppState.bubble.sizeMode;
-    bubbleSizeMode.dispatchEvent(new Event('change'));
   }
   
-
+  updateControlVisibility();
 }
 
 function updateBubbleView() {
@@ -578,6 +631,7 @@ function updateBubbleView() {
       setTargetGeometry(bubbleGeo, scene, false);
     } else {
       console.warn("Bubble Mode: No geometry generated.");
+      setTargetGeometry(null, scene, false);
     }
   }
 }
@@ -600,4 +654,98 @@ setTimeout(() => {
     demoModelSelector.value = randomModel;
     demoModelSelector.dispatchEvent(new Event('change'));
   }
+  updateControlVisibility();
 }, 100);
+
+// --- MAKE 2D PREVIEW DRAGGABLE ---
+const makeElementDraggable = (elmnt) => {
+  let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+  const header = elmnt.querySelector('h3') || elmnt;
+  
+  header.style.cursor = 'move';
+  header.style.userSelect = 'none';
+
+  const dragMouseDown = (e) => {
+    e = e || window.event;
+    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+      return;
+    }
+    e.preventDefault();
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+    document.onmouseup = closeDragElement;
+    document.onmousemove = elementDrag;
+  };
+
+  const elementDrag = (e) => {
+    e = e || window.event;
+    e.preventDefault();
+    pos1 = pos3 - e.clientX;
+    pos2 = pos4 - e.clientY;
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+    
+    elmnt.style.right = 'auto';
+    elmnt.style.bottom = 'auto';
+    
+    let newTop = elmnt.offsetTop - pos2;
+    let newLeft = elmnt.offsetLeft - pos1;
+    
+    // Bounds check
+    newTop = Math.max(10, Math.min(window.innerHeight - elmnt.offsetHeight - 10, newTop));
+    newLeft = Math.max(10, Math.min(window.innerWidth - elmnt.offsetWidth - 10, newLeft));
+
+    elmnt.style.top = newTop + "px";
+    elmnt.style.left = newLeft + "px";
+  };
+
+  const closeDragElement = () => {
+    document.onmouseup = null;
+    document.onmousemove = null;
+  };
+
+  header.onmousedown = dragMouseDown;
+
+  // Touch Support
+  header.ontouchstart = (e) => {
+    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+      return;
+    }
+    const touch = e.touches[0];
+    pos3 = touch.clientX;
+    pos4 = touch.clientY;
+    
+    const touchMove = (e) => {
+      const touch = e.touches[0];
+      pos1 = pos3 - touch.clientX;
+      pos2 = pos4 - touch.clientY;
+      pos3 = touch.clientX;
+      pos4 = touch.clientY;
+      
+      elmnt.style.right = 'auto';
+      elmnt.style.bottom = 'auto';
+      
+      let newTop = elmnt.offsetTop - pos2;
+      let newLeft = elmnt.offsetLeft - pos1;
+      
+      newTop = Math.max(10, Math.min(window.innerHeight - elmnt.offsetHeight - 10, newTop));
+      newLeft = Math.max(10, Math.min(window.innerWidth - elmnt.offsetWidth - 10, newLeft));
+
+      elmnt.style.top = newTop + "px";
+      elmnt.style.left = newLeft + "px";
+    };
+    
+    const touchEnd = () => {
+      document.ontouchmove = null;
+      document.ontouchend = null;
+    };
+    
+    document.ontouchmove = touchMove;
+    document.ontouchend = touchEnd;
+  };
+};
+
+const previewPanel = document.querySelector('.slice-preview-panel');
+if (previewPanel) {
+  makeElementDraggable(previewPanel);
+}

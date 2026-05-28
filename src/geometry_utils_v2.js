@@ -371,3 +371,357 @@ export function isPointInContours(x, y, contours) {
     }
     return inside;
 }
+
+/**
+ * Generates points using Bridson's 2D Poisson Disk Sampling algorithm inside contours.
+ */
+export function getPoissonPointsInContours(contours, box, spacing, layerIndex) {
+    const points = [];
+    const r = spacing; // minimum distance between points
+    const cellSize = r / Math.sqrt(2);
+    
+    // Grid to store point coordinates
+    const grid = new Map();
+    const active = [];
+    
+    // Seeded random helper
+    let seed = layerIndex * 2777 + 7;
+    const pRand = () => {
+        let x = Math.sin(seed++) * 10000;
+        return x - Math.floor(x);
+    };
+
+    // Find a starting point inside contours
+    let foundStart = false;
+    let startX = 0, startY = 0;
+    const width = box.max.x - box.min.x;
+    const height = box.max.y - box.min.y;
+
+    if (width <= 0 || height <= 0) return points;
+
+    for (let attempt = 0; attempt < 500; attempt++) {
+        const x = box.min.x + pRand() * width;
+        const y = box.min.y + pRand() * height;
+        if (isPointInContours(x, y, contours)) {
+            startX = x;
+            startY = y;
+            foundStart = true;
+            break;
+        }
+    }
+
+    if (!foundStart) {
+        return points;
+    }
+
+    // Insert first point
+    const firstPoint = { x: startX, y: startY };
+    points.push(firstPoint);
+    active.push(firstPoint);
+    
+    const getGridKey = (x, y) => `${Math.floor((x - box.min.x) / cellSize)},${Math.floor((y - box.min.y) / cellSize)}`;
+    grid.set(getGridKey(startX, startY), firstPoint);
+
+    const k = 30; // Max candidates per active point
+
+    while (active.length > 0) {
+        const randIdx = Math.floor(pRand() * active.length);
+        const p = active[randIdx];
+        let foundCandidate = false;
+
+        for (let i = 0; i < k; i++) {
+            const theta = pRand() * Math.PI * 2;
+            const dist = r + pRand() * r; // between r and 2r
+            const cx = p.x + Math.cos(theta) * dist;
+            const cy = p.y + Math.sin(theta) * dist;
+
+            if (cx < box.min.x || cx > box.max.x || cy < box.min.y || cy > box.max.y) continue;
+            if (!isPointInContours(cx, cy, contours)) continue;
+
+            const gx = Math.floor((cx - box.min.x) / cellSize);
+            const gy = Math.floor((cy - box.min.y) / cellSize);
+            let tooClose = false;
+
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dy = -2; dy <= 2; dy++) {
+                    const neighborKey = `${gx + dx},${gy + dy}`;
+                    if (grid.has(neighborKey)) {
+                        const np = grid.get(neighborKey);
+                        const distSq = (np.x - cx) ** 2 + (np.y - cy) ** 2;
+                        if (distSq < r * r) {
+                            tooClose = true;
+                            break;
+                        }
+                    }
+                }
+                if (tooClose) break;
+            }
+
+            if (!tooClose) {
+                const newPoint = { x: cx, y: cy };
+                points.push(newPoint);
+                active.push(newPoint);
+                grid.set(getGridKey(cx, cy), newPoint);
+                foundCandidate = true;
+                break;
+            }
+        }
+
+        if (!foundCandidate) {
+            active.splice(randIdx, 1);
+        }
+    }
+
+    return points;
+}
+
+/**
+ * Performs Lloyd's Relaxation in 2D using a grid-discretized centroid estimation.
+ */
+export function applyLloydRelaxation(points, contours, box, spacing, iterations) {
+    if (iterations <= 0 || points.length === 0) return points;
+
+    let relaxedPoints = points.map(p => ({ x: p.x, y: p.y }));
+    const width = box.max.x - box.min.x;
+    const height = box.max.y - box.min.y;
+    if (width <= 0 || height <= 0) return points;
+
+    // Use a maximum grid resolution to balance quality and performance
+    const maxGridDimension = 150;
+    const cellSize = Math.max(0.05, Math.max(width, height) / maxGridDimension);
+    
+    const cols = Math.ceil(width / cellSize);
+    const rows = Math.ceil(height / cellSize);
+
+    // Precalculate cells inside the contours
+    const insideGrid = Array.from({ length: cols }, () => new Uint8Array(rows));
+    for (let c = 0; c < cols; c++) {
+        const cx = box.min.x + (c + 0.5) * cellSize;
+        for (let r = 0; r < rows; r++) {
+            const cy = box.min.y + (r + 0.5) * cellSize;
+            if (isPointInContours(cx, cy, contours)) {
+                insideGrid[c][r] = 1;
+            }
+        }
+    }
+
+    const binSize = Math.max(cellSize * 2, spacing * 2);
+
+    for (let iter = 0; iter < iterations; iter++) {
+        // Spatial hash binning
+        const binCols = Math.ceil(width / binSize);
+        const binRows = Math.ceil(height / binSize);
+        const bins = Array.from({ length: Math.max(1, binCols * binRows) }, () => []);
+
+        for (let i = 0; i < relaxedPoints.length; i++) {
+            const p = relaxedPoints[i];
+            const bx = Math.min(binCols - 1, Math.max(0, Math.floor((p.x - box.min.x) / binSize)));
+            const by = Math.min(binRows - 1, Math.max(0, Math.floor((p.y - box.min.y) / binSize)));
+            bins[by * binCols + bx].push(i);
+        }
+
+        const sumsX = new Float32Array(relaxedPoints.length);
+        const sumsY = new Float32Array(relaxedPoints.length);
+        const counts = new Int32Array(relaxedPoints.length);
+
+        // Assign each inside grid cell to the closest point site
+        for (let c = 0; c < cols; c++) {
+            const cx = box.min.x + (c + 0.5) * cellSize;
+            const bx = Math.min(binCols - 1, Math.max(0, Math.floor((cx - box.min.x) / binSize)));
+
+            for (let r = 0; r < rows; r++) {
+                if (insideGrid[c][r] === 0) continue;
+
+                const cy = box.min.y + (r + 0.5) * cellSize;
+                const by = Math.min(binRows - 1, Math.max(0, Math.floor((cy - box.min.y) / binSize)));
+
+                let closestIndex = -1;
+                let minDistSq = Infinity;
+
+                // Check 3x3 neighboring spatial hash bins
+                for (let dy = -1; dy <= 1; dy++) {
+                    const ny = by + dy;
+                    if (ny < 0 || ny >= binRows) continue;
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const nx = bx + dx;
+                        if (nx < 0 || nx >= binCols) continue;
+
+                        const binPoints = bins[ny * binCols + nx];
+                        for (let k = 0; k < binPoints.length; k++) {
+                            const idx = binPoints[k];
+                            const p = relaxedPoints[idx];
+                            const distSq = (p.x - cx) ** 2 + (p.y - cy) ** 2;
+                            if (distSq < minDistSq) {
+                                minDistSq = distSq;
+                                closestIndex = idx;
+                            }
+                        }
+                    }
+                }
+
+                if (closestIndex !== -1) {
+                    sumsX[closestIndex] += cx;
+                    sumsY[closestIndex] += cy;
+                    counts[closestIndex]++;
+                }
+            }
+        }
+
+        // Calculate centroids
+        for (let i = 0; i < relaxedPoints.length; i++) {
+            if (counts[i] > 0) {
+                const newX = sumsX[i] / counts[i];
+                const newY = sumsY[i] / counts[i];
+                if (isPointInContours(newX, newY, contours)) {
+                    relaxedPoints[i].x = newX;
+                    relaxedPoints[i].y = newY;
+                }
+            }
+        }
+    }
+
+    return relaxedPoints;
+}
+
+/**
+ * Performs 3D discretized Voronoi Lloyd's Relaxation inside the 3D mesh.
+ */
+export function apply3DLloydRelaxation(bubbles, mesh, box, meanRadius, iterations) {
+    if (iterations <= 0 || bubbles.length === 0) return bubbles;
+
+    let relaxed = bubbles.map(b => ({ x: b.x, y: b.y, z: b.z, radius: b.radius }));
+    const width = box.max.x - box.min.x;
+    const height = box.max.y - box.min.y;
+    const depth = box.max.z - box.min.z;
+    if (width <= 0 || height <= 0 || depth <= 0) return bubbles;
+
+    // Define 3D grid cell size
+    const maxCells = 80000; // Limit cell count to keep it fast
+    const volume = width * height * depth;
+    const cellSize = Math.max(0.1, Math.pow(volume / maxCells, 1 / 3));
+
+    const cols = Math.ceil(width / cellSize);
+    const rows = Math.ceil(height / cellSize);
+    const slices = Math.ceil(depth / cellSize);
+
+    // Precalculate Z heights and their slice contours
+    const sliceContours = [];
+    const insideGrid = []; // 3D boolean grid
+
+    for (let s = 0; s < slices; s++) {
+        const cz = box.min.z + (s + 0.5) * cellSize;
+        const contours = getSliceContours(mesh, cz);
+        sliceContours.push(contours);
+
+        const sliceGrid = Array.from({ length: cols }, () => new Uint8Array(rows));
+        if (contours.length > 0) {
+            for (let c = 0; c < cols; c++) {
+                const cx = box.min.x + (c + 0.5) * cellSize;
+                for (let r = 0; r < rows; r++) {
+                    const cy = box.min.y + (r + 0.5) * cellSize;
+                    if (isPointInContours(cx, cy, contours)) {
+                        sliceGrid[c][r] = 1;
+                    }
+                }
+            }
+        }
+        insideGrid.push(sliceGrid);
+    }
+
+    const binSize = Math.max(cellSize * 2, meanRadius * 2);
+
+    for (let iter = 0; iter < iterations; iter++) {
+        // 3D Spatial hashing
+        const binCols = Math.ceil(width / binSize);
+        const binRows = Math.ceil(height / binSize);
+        const binSlices = Math.ceil(depth / binSize);
+        const bins = Array.from({ length: Math.max(1, binCols * binRows * binSlices) }, () => []);
+
+        for (let i = 0; i < relaxed.length; i++) {
+            const b = relaxed[i];
+            const bx = Math.min(binCols - 1, Math.max(0, Math.floor((b.x - box.min.x) / binSize)));
+            const by = Math.min(binRows - 1, Math.max(0, Math.floor((b.y - box.min.y) / binSize)));
+            const bz = Math.min(binSlices - 1, Math.max(0, Math.floor((b.z - box.min.z) / binSize)));
+            bins[(bz * binRows + by) * binCols + bx].push(i);
+        }
+
+        const sumsX = new Float32Array(relaxed.length);
+        const sumsY = new Float32Array(relaxed.length);
+        const sumsZ = new Float32Array(relaxed.length);
+        const counts = new Int32Array(relaxed.length);
+
+        // Assign each inside 3D grid cell to the closest bubble
+        for (let s = 0; s < slices; s++) {
+            const cz = box.min.z + (s + 0.5) * cellSize;
+            const bz = Math.min(binSlices - 1, Math.max(0, Math.floor((cz - box.min.z) / binSize)));
+            const sliceGrid = insideGrid[s];
+
+            for (let c = 0; c < cols; c++) {
+                const cx = box.min.x + (c + 0.5) * cellSize;
+                const bx = Math.min(binCols - 1, Math.max(0, Math.floor((cx - box.min.x) / binSize)));
+
+                for (let r = 0; r < rows; r++) {
+                    if (sliceGrid[c][r] === 0) continue;
+
+                    const cy = box.min.y + (r + 0.5) * cellSize;
+                    const by = Math.min(binRows - 1, Math.max(0, Math.floor((cy - box.min.y) / binSize)));
+
+                    let closestIndex = -1;
+                    let minDistSq = Infinity;
+
+                    // Check 3x3x3 neighboring bins
+                    for (let dz = -1; dz <= 1; dz++) {
+                        const nz = bz + dz;
+                        if (nz < 0 || nz >= binSlices) continue;
+                        for (let dy = -1; dy <= 1; dy++) {
+                            const ny = by + dy;
+                            if (ny < 0 || ny >= binRows) continue;
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nx = bx + dx;
+                                if (nx < 0 || nx >= binCols) continue;
+
+                                const binBubbles = bins[(nz * binRows + ny) * binCols + nx];
+                                for (let k = 0; k < binBubbles.length; k++) {
+                                    const idx = binBubbles[k];
+                                    const b = relaxed[idx];
+                                    const distSq = (b.x - cx) ** 2 + (b.y - cy) ** 2 + (b.z - cz) ** 2;
+                                    if (distSq < minDistSq) {
+                                        minDistSq = distSq;
+                                        closestIndex = idx;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (closestIndex !== -1) {
+                        sumsX[closestIndex] += cx;
+                        sumsY[closestIndex] += cy;
+                        sumsZ[closestIndex] += cz;
+                        counts[closestIndex]++;
+                    }
+                }
+            }
+        }
+
+        // Update bubble positions
+        for (let i = 0; i < relaxed.length; i++) {
+            if (counts[i] > 0) {
+                const newX = sumsX[i] / counts[i];
+                const newY = sumsY[i] / counts[i];
+                const newZ = sumsZ[i] / counts[i];
+
+                // Determine slice index for newZ to do inside check
+                const sIdx = Math.min(slices - 1, Math.max(0, Math.floor((newZ - box.min.z) / cellSize)));
+                const contours = sliceContours[sIdx];
+                if (contours.length === 0 || isPointInContours(newX, newY, contours)) {
+                    relaxed[i].x = newX;
+                    relaxed[i].y = newY;
+                    relaxed[i].z = newZ;
+                }
+            }
+        }
+    }
+
+    return relaxed;
+}

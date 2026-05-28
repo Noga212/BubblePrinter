@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getSliceContours, distanceToContours, getOrangesPointsInContours, getRejectionSamplingPointsInContours, getGridPointsInContours, isPointInContours } from './geometry_utils_v2.js';
+import { getSliceContours, distanceToContours, getOrangesPointsInContours, getRejectionSamplingPointsInContours, getGridPointsInContours, isPointInContours, getPoissonPointsInContours, applyLloydRelaxation, apply3DLloydRelaxation } from './geometry_utils_v2.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
 export class BubbleGenerator {
@@ -45,7 +45,7 @@ export class BubbleGenerator {
         const thetaLength = Math.PI * (1 - (Math.max(0, Math.min(100, config.baseFlattenPercent)) / 100));
 
         if (config.sizeMode === 'shell_gradient_in' || config.sizeMode === 'adaptive') {
-            return this.generate3DPacking(mesh, box, meanRadius, minRadius, maxRadius, overlapFactorH, overlapFactorV, config.baseFlattenPercent, config.sizeMode, thetaLength, advanced);
+            return this.generate3DPacking(mesh, box, meanRadius, minRadius, maxRadius, overlapFactorH, overlapFactorV, config.baseFlattenPercent, config.sizeMode, thetaLength, advanced, config);
         }
 
         const baseZOffset = - (firstLayerRadius * Math.cos(thetaLength));
@@ -109,11 +109,48 @@ export class BubbleGenerator {
                     points = getOrangesPointsInContours(contours, box, horizontalStep, layerIndex);
                 } else if (config.arrangement === 'rejection') {
                     points = getRejectionSamplingPointsInContours(contours, box, horizontalStep, layerIndex);
+                } else if (config.arrangement === 'poisson') {
+                    const poissonSpacing = ((config.poissonRadius || 0.5) * 2) * overlapFactorH;
+                    points = getPoissonPointsInContours(contours, box, poissonSpacing, layerIndex);
                 } else {
                     points = getGridPointsInContours(contours, box, horizontalStep);
                 }
 
-                points.forEach(p => {
+                // Apply Lloyd's Relaxation if applicable
+                if ((config.arrangement === 'rejection' || config.arrangement === 'poisson') && config.lloydIterations > 0) {
+                    const step = config.arrangement === 'poisson' ? ((config.poissonRadius || 0.5) * 2) * overlapFactorH : horizontalStep;
+                    points = applyLloydRelaxation(points, contours, box, step, config.lloydIterations);
+                }
+
+                // Apply Jitter Modifier if applicable
+                if ((config.arrangement === 'grid' || config.arrangement === 'oranges') && config.jitterPercent > 0) {
+                    const maxDisplacement = (config.jitterPercent / 100) * currentLayerRadius;
+                    let jitterSeed = layerIndex * 9997 + 13;
+                    const jRand = () => {
+                        let x = Math.sin(jitterSeed++) * 10000;
+                        return x - Math.floor(x);
+                    };
+
+                    points = points.map(p => {
+                        const angle = jRand() * Math.PI * 2;
+                        const mag = jRand() * maxDisplacement;
+                        const nx = p.x + Math.cos(angle) * mag;
+                        const ny = p.y + Math.sin(angle) * mag;
+                        if (isPointInContours(nx, ny, contours)) {
+                            return { x: nx, y: ny };
+                        }
+                        return p;
+                    });
+                }
+
+                let capReached = false;
+                for (let k = 0; k < points.length; k++) {
+                    if (geometries.length >= ((advanced.maxBubbles || 10000) * 1.5)) {
+                        console.warn(`[BubbleGenerator] Capping bubbles to max limit: ${geometries.length}`);
+                        capReached = true;
+                        break;
+                    }
+                    const p = points[k];
                     const matrix = new THREE.Matrix4().makeTranslation(p.x, p.y, centerZ);
 
                     let geo;
@@ -127,7 +164,8 @@ export class BubbleGenerator {
                     geo.rotateX(Math.PI / 2);
 
                     geometries.push(geo.clone().applyMatrix4(matrix));
-                });
+                }
+                if (capReached) break;
             }
 
             let layerStep = (currentLayerRadius * 2) * overlapFactorV;
@@ -157,7 +195,7 @@ export class BubbleGenerator {
         }
     }
 
-    generate3DPacking(mesh, box, meanRadius, minRadius, maxRadius, overlapFactorH, overlapFactorV, baseFlattenPercent, sizeMode, thetaLength, advanced) {
+    generate3DPacking(mesh, box, meanRadius, minRadius, maxRadius, overlapFactorH, overlapFactorV, baseFlattenPercent, sizeMode, thetaLength, advanced, config) {
         console.log(`[BubbleGenerator] Using 3D Advancing Front for ${sizeMode}`);
         const geometries = [];
         const bubbles = [];
@@ -202,9 +240,6 @@ export class BubbleGenerator {
             }
         };
 
-        const firstLayerContours = getContours(startZ);
-        if (firstLayerContours.length === 0) return null;
-
         const cellSize = maxRadius * 2.1;
         const grid = new Map();
         const addGrid = (b) => {
@@ -213,11 +248,36 @@ export class BubbleGenerator {
             grid.get(k).push(b);
         };
 
-        const minSpacing = minRadius * 2 * overlapFactorH;
-        const initialPoints = getGridPointsInContours(firstLayerContours, box, minSpacing);
+        const seedSpacing = (config.arrangement === 'poisson') ? ((config.poissonRadius || 0.5) * 2 * overlapFactorH) : (minRadius * 2 * overlapFactorH);
+        
+        let currentStartZ = startZ;
+        let initialPoints = [];
+        let firstLayerContours = [];
+        
+        while (currentStartZ <= maxZ) {
+            firstLayerContours = getContours(currentStartZ);
+            if (firstLayerContours.length > 0) {
+                if (config.arrangement === 'oranges') {
+                    initialPoints = getOrangesPointsInContours(firstLayerContours, box, seedSpacing, 0);
+                } else if (config.arrangement === 'rejection') {
+                    initialPoints = getRejectionSamplingPointsInContours(firstLayerContours, box, seedSpacing, 0);
+                } else if (config.arrangement === 'poisson') {
+                    initialPoints = getPoissonPointsInContours(firstLayerContours, box, seedSpacing, 0);
+                } else {
+                    initialPoints = getGridPointsInContours(firstLayerContours, box, seedSpacing);
+                }
+                
+                if (initialPoints.length > 0) {
+                    break;
+                }
+            }
+            currentStartZ += seedSpacing;
+        }
+
+        if (initialPoints.length === 0) return null;
         
         initialPoints.forEach(p => {
-            const r = evaluateRadius(p.x, p.y, startZ, firstLayerContours);
+            const r = evaluateRadius(p.x, p.y, currentStartZ, firstLayerContours);
             let overlap = false;
             for(let b of bubbles) {
                 const ex = (p.x - b.x) / overlapFactorH;
@@ -226,7 +286,7 @@ export class BubbleGenerator {
                 if (ex*ex + ey*ey < req*req - 0.001) { overlap = true; break; }
             }
             if (!overlap) {
-                const nb = { x: p.x, y: p.y, z: startZ, radius: r };
+                const nb = { x: p.x, y: p.y, z: currentStartZ, radius: r };
                 bubbles.push(nb);
                 active.push(nb);
                 addGrid(nb);
@@ -235,6 +295,16 @@ export class BubbleGenerator {
 
         let seed = 12345;
         const sRand = () => { let x = Math.sin(seed++) * 10000; return x - Math.floor(x); };
+
+        const shuffle = (array) => {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(sRand() * (i + 1));
+                const temp = array[i];
+                array[i] = array[j];
+                array[j] = temp;
+            }
+            return array;
+        };
 
         let iter = 0;
         const maxIterations = advanced.maxIterations3D || 300000;
@@ -245,13 +315,37 @@ export class BubbleGenerator {
             const b = active[idx];
             let added = false;
             
-            for (let i = 0; i < 30; i++) {
-                const theta = sRand() * Math.PI * 2;
-                const phi = Math.acos(2 * sRand() - 1);
-                
-                const dirX = Math.sin(phi) * Math.cos(theta) * overlapFactorH;
-                const dirY = Math.sin(phi) * Math.sin(theta) * overlapFactorH;
-                const dirZ = Math.cos(phi) * overlapFactorV;
+            let directions = [];
+            if (config.arrangement === 'grid') {
+                directions = shuffle([
+                    { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 },
+                    { x: 0, y: 1, z: 0 }, { x: 0, y: -1, z: 0 },
+                    { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }
+                ]);
+            } else if (config.arrangement === 'oranges') {
+                const s2 = Math.SQRT1_2;
+                directions = shuffle([
+                    { x: s2, y: s2, z: 0 }, { x: s2, y: -s2, z: 0 }, { x: -s2, y: s2, z: 0 }, { x: -s2, y: -s2, z: 0 },
+                    { x: s2, y: 0, z: s2 }, { x: s2, y: 0, z: -s2 }, { x: -s2, y: 0, z: s2 }, { x: -s2, y: 0, z: -s2 },
+                    { x: 0, y: s2, z: s2 }, { x: 0, y: s2, z: -s2 }, { x: 0, y: -s2, z: s2 }, { x: 0, y: -s2, z: -s2 }
+                ]);
+            } else {
+                for (let i = 0; i < 30; i++) {
+                    const theta = sRand() * Math.PI * 2;
+                    const phi = Math.acos(2 * sRand() - 1);
+                    directions.push({
+                        x: Math.sin(phi) * Math.cos(theta),
+                        y: Math.sin(phi) * Math.sin(theta),
+                        z: Math.cos(phi)
+                    });
+                }
+            }
+            
+            for (let i = 0; i < directions.length; i++) {
+                const dir = directions[i];
+                const dirX = dir.x * overlapFactorH;
+                const dirY = dir.y * overlapFactorH;
+                const dirZ = dir.z * overlapFactorV;
                 
                 const guessR = (minRadius + maxRadius) / 2;
                 const tempX = b.x + dirX * (b.radius + guessR);
@@ -315,10 +409,52 @@ export class BubbleGenerator {
             if (bubbles.length > maxBubbles) break;
         }
 
-        bubbles.forEach(b => {
+        let finalBubbles = bubbles;
+
+        // Apply 3D Lloyd's Relaxation if applicable
+        if ((config.arrangement === 'rejection' || config.arrangement === 'poisson') && config.lloydIterations > 0) {
+            finalBubbles = apply3DLloydRelaxation(bubbles, mesh, box, meanRadius, config.lloydIterations);
+        }
+
+        // Apply 3D Jitter if applicable
+        if ((config.arrangement === 'grid' || config.arrangement === 'oranges') && config.jitterPercent > 0) {
+            let jitterSeed = 54321;
+            const jRand = () => {
+                let x = Math.sin(jitterSeed++) * 10000;
+                return x - Math.floor(x);
+            };
+
+            finalBubbles = finalBubbles.map(b => {
+                const maxDisplacement = (config.jitterPercent / 100) * b.radius;
+                const theta = jRand() * Math.PI * 2;
+                const phi = Math.acos(2 * jRand() - 1);
+                const dx = Math.sin(phi) * Math.cos(theta) * maxDisplacement;
+                const dy = Math.sin(phi) * Math.sin(theta) * maxDisplacement;
+                const dz = Math.cos(phi) * maxDisplacement;
+
+                const nx = b.x + dx;
+                const ny = b.y + dy;
+                const nz = b.z + dz;
+
+                if (nz >= minZ && nz <= maxZ) {
+                    const contours = getContours(nz);
+                    if (isPointInContours(nx, ny, contours)) {
+                        return { x: nx, y: ny, z: nz, radius: b.radius };
+                    }
+                }
+                return b;
+            });
+        }
+
+        let minCenterZ = Infinity;
+        finalBubbles.forEach(b => {
+            if (b.z < minCenterZ) minCenterZ = b.z;
+        });
+
+        finalBubbles.forEach(b => {
             const matrix = new THREE.Matrix4().makeTranslation(b.x, b.y, b.z);
             let geo;
-            if (Math.abs(b.z - startZ) < 0.1) {
+            if (Math.abs(b.z - minCenterZ) < 0.1) {
                 geo = new THREE.SphereGeometry(b.radius, widthSegments, heightSegments, 0, Math.PI * 2, 0, thetaLength);
             } else {
                 geo = new THREE.SphereGeometry(b.radius, widthSegments, heightSegments);

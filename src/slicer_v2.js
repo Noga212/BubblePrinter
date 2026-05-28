@@ -241,7 +241,17 @@ export function setupSlicer(url, scene, camera, controls, onLoadCallback = null)
             // Normal (0,0,1). z + D > 0 => z > -D. We want z > z0. So -D = z0 => D = -z0.
             topClipPlane.constant = -z0;
 
-            // Clear previous slice visualization
+            // Clear previous slice visualization and dispose geometries/materials to prevent memory leaks
+            sliceGroup.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
             sliceGroup.clear();
 
             // Ensure matrices are up to date before slicing
@@ -373,7 +383,7 @@ function drawSliceToCanvas(ctx, polygons, width, height) {
     ctx.lineWidth = 2;
     ctx.fillStyle = 'rgba(0, 229, 255, 0.2)';
 
-    const scale = 20; // 20px per unit. Model is ~10 units -> 200px. Canvas is 300px. Fits well.
+    const scale = Math.min(width, height) / 14; // Automatically scales based on canvas size
     const cx = width / 2;
     const cy = height / 2;
 
@@ -487,7 +497,36 @@ export function restoreOriginalGeometry(scene) {
  */
 export function setTargetGeometry(geometry, scene, renderCaps = true) {
     if (!geometry) {
-        console.error("setTargetGeometry called with null geometry");
+        // Cleanup existing bubbles
+        if (currentMesh && currentMesh !== originalMesh) {
+            scene.remove(currentMesh);
+            if (currentMesh.geometry) currentMesh.geometry.dispose();
+            if (currentMesh.material) {
+                if (Array.isArray(currentMesh.material)) {
+                    currentMesh.material.forEach(m => m.dispose());
+                } else {
+                    currentMesh.material.dispose();
+                }
+            }
+            currentMesh = null;
+        }
+        if (ghostMesh) {
+            scene.remove(ghostMesh);
+            ghostMesh.traverse((child) => {
+                if (child.isMesh) {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(m => m.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                    }
+                }
+            });
+            ghostMesh = null;
+        }
+        setSliceTarget(null);
         return;
     }
 
@@ -496,15 +535,34 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
     // 1. Cleanup existing currentMesh
     if (currentMesh) {
         scene.remove(currentMesh);
-        if (currentMesh.geometry && currentMesh !== originalMesh) {
-            currentMesh.geometry.dispose();
+        if (currentMesh !== originalMesh) {
+            if (currentMesh.geometry) currentMesh.geometry.dispose();
+            if (currentMesh.material) {
+                if (Array.isArray(currentMesh.material)) {
+                    currentMesh.material.forEach(m => m.dispose());
+                } else {
+                    currentMesh.material.dispose();
+                }
+            }
         }
     }
     if (ghostMesh) {
         scene.remove(ghostMesh);
-        if (ghostMesh.geometry && currentMesh !== originalMesh) {
-            ghostMesh.geometry.dispose();
+        if (currentMesh !== originalMesh) {
+            ghostMesh.traverse((child) => {
+                if (child.isMesh) {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(m => m.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                    }
+                }
+            });
         }
+        ghostMesh = null;
     }
 
     // 2. Create Solid Mesh (Bottom)
