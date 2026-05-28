@@ -843,7 +843,9 @@ function computeAOFactors(bubbles, aoSetting) {
   }
   if (maxD === 0) maxD = 1;
 
-  let intensity = 0.85;
+  let intensity = 0.5;
+  if (aoSetting === 'low') intensity = 0.3;
+  if (aoSetting === 'high') intensity = 0.85;
 
   for (let i = 0; i < bubbles.length; i++) {
     const t = densities[i] / maxD;
@@ -911,7 +913,9 @@ function applyVertexAO(geometry, bubbles, aoSetting, heatmapMode, paletteName) {
   const count = posAttr.count;
   const colors = new Float32Array(count * 3);
   
-  let intensity = 0.85; 
+  let intensity = 0.5;
+  if (aoSetting === 'low') intensity = 0.3;
+  if (aoSetting === 'high') intensity = 0.85;
   
   let zMin = Infinity, zMax = -Infinity;
   let maxRad = 0;
