@@ -22,7 +22,10 @@ export let baseColor = new THREE.Color(0xffaa00); // Default Orange
 let currentBubbles = null;
 export let visualizationConfig = {
     mode: 'spheres',
-    heatmap: 'none'
+    heatmap: 'none',
+    shadingMode: 'flat',
+    shininess: 30,
+    specularColor: '#111111'
 };
 
 export function setBubbleData(bubbles) {
@@ -285,11 +288,11 @@ export function setupSlicer(url, scene, camera, controls, onLoadCallback = null)
                 // SOLID BOTTOM MATERIAL
                 child.material = new THREE.MeshPhongMaterial({
                     color: baseColor,
-                    emissive: 0x222222,
-                    specular: 0x111111,
-                    shininess: 30,
+                    emissive: 0x000000,
+                    specular: new THREE.Color(visualizationConfig.specularColor || '#111111'),
+                    shininess: visualizationConfig.shininess !== undefined ? visualizationConfig.shininess : 30,
                     side: THREE.DoubleSide,
-                    flatShading: true,
+                    flatShading: visualizationConfig.shadingMode === 'flat',
                     clippingPlanes: [bottomClipPlane],
                     clipShadows: true
                 });
@@ -730,11 +733,11 @@ export function setTargetGeometry(geometry, scene, renderCaps = true) {
     const material = new THREE.MeshPhongMaterial({
         color: isHeatmap ? 0xffffff : baseColor,
         vertexColors: hasColors,
-        emissive: 0x222222,
-        specular: 0x111111,
-        shininess: 30,
+        emissive: 0x000000,
+        specular: new THREE.Color(visualizationConfig.specularColor || '#111111'),
+        shininess: visualizationConfig.shininess !== undefined ? visualizationConfig.shininess : 30,
         side: THREE.DoubleSide,
-        flatShading: true,
+        flatShading: visualizationConfig.shadingMode === 'flat',
         clippingPlanes: [bottomClipPlane],
         clipShadows: true
     });
@@ -805,5 +808,50 @@ export function setBaseMaterialColor(hexString) {
             }
         });
     }
+}
+
+export function setShadingMode(mode) {
+    visualizationConfig.shadingMode = mode;
+    const isFlat = (mode === 'flat');
+    const updateMesh = (mesh) => {
+        if (!mesh) return;
+        mesh.traverse((child) => {
+            if (child.isMesh && child.material) {
+                child.material.flatShading = isFlat;
+                child.material.needsUpdate = true;
+            }
+        });
+    };
+    updateMesh(originalMesh);
+    updateMesh(currentMesh);
+}
+
+export function setShininess(val) {
+    visualizationConfig.shininess = val;
+    const updateMesh = (mesh) => {
+        if (!mesh) return;
+        mesh.traverse((child) => {
+            if (child.isMesh && child.material && child.material.shininess !== undefined) {
+                child.material.shininess = val;
+            }
+        });
+    };
+    updateMesh(originalMesh);
+    updateMesh(currentMesh);
+}
+
+export function setSpecularColor(hex) {
+    visualizationConfig.specularColor = hex;
+    const color = new THREE.Color(hex);
+    const updateMesh = (mesh) => {
+        if (!mesh) return;
+        mesh.traverse((child) => {
+            if (child.isMesh && child.material && child.material.specular) {
+                child.material.specular.copy(color);
+            }
+        });
+    };
+    updateMesh(originalMesh);
+    updateMesh(currentMesh);
 }
 

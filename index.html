@@ -87,6 +87,15 @@
                   <span class="unit-label">%</span>
                 </div>
               </div>
+              <div class="setting-row" title="Toggle real-time shadow casting and rendering in the scene.">
+                <label>Cast Shadows:</label>
+                <div class="setting-control">
+                  <label class="switch">
+                    <input type="checkbox" id="castShadowsToggle" checked>
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -131,6 +140,7 @@
                       <select id="bubbleArrangement" class="value-input" style="width: 100%;">
                         <option value="grid" selected>Grid</option>
                         <option value="oranges">Oranges</option>
+                        <option value="hexagons">Hexagons</option>
                         <option value="rejection">Random</option>
                         <option value="poisson">Poisson</option>
                       </select>
@@ -377,16 +387,15 @@
                   </select>
                 </div>
               </div>
-              <div class="setting-row" title="Apply Ambient Occlusion shadows for depth.">
-                <label>AO Shadows:</label>
-                <div class="setting-control">
-                  <select id="visAO" class="value-input" style="width: 100%;">
-                    <option value="none" selected>Off</option>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
+              <div class="setting-group" title="Apply Ambient Occlusion shadows for depth.">
+                <div class="setting-row">
+                  <label>AO Shadows:</label>
+                  <div class="setting-control">
+                    <input type="number" id="visAOInput" min="0" max="100" step="1" value="0" class="value-input">
+                    <span class="unit-label">%</span>
+                  </div>
                 </div>
+                <input type="range" id="visAOSlider" min="0" max="100" step="1" value="0" class="horizontal-slider">
               </div>
               <div id="visDensityRadiusGroup" class="setting-group" style="display: none;">
                 <div class="setting-row" title="Search radius factor for computing bubble density.">
@@ -421,6 +430,30 @@
                   <input type="color" id="modelColorInput" value="#ffaa00" style="background: transparent; border: 1px solid rgba(0, 229, 255, 0.3); padding: 0; width: 60px; height: 26px; cursor: pointer; border-radius: 4px;">
                 </div>
               </div>
+              <div class="setting-row" title="Choose the shading style for rendering. Flat shows facets, Phong/Smooth shows curved smooth surfaces.">
+                <label>Shading Mode:</label>
+                <div class="setting-control">
+                  <select id="shadingModeSelect" class="value-input" style="width: 100%;">
+                    <option value="flat" selected>Flat</option>
+                    <option value="smooth">Smooth (Phong)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="setting-group" title="Adjust the shininess / specular reflection gloss of the model material.">
+                <div class="setting-row">
+                  <label>Shininess:</label>
+                  <div class="setting-control">
+                    <input type="number" id="shininessInput" min="0" max="100" step="1" value="30" class="value-input">
+                  </div>
+                </div>
+                <input type="range" id="shininessSlider" min="0" max="100" step="1" value="30" class="horizontal-slider">
+              </div>
+              <div class="setting-row" title="Change the specular highlight color.">
+                <label>Specular Color:</label>
+                <div class="setting-control">
+                  <input type="color" id="specularColorInput" value="#111111" style="background: transparent; border: 1px solid rgba(0, 229, 255, 0.3); padding: 0; width: 60px; height: 26px; cursor: pointer; border-radius: 4px;">
+                </div>
+              </div>
             </div>
           </div>
 
@@ -433,6 +466,16 @@
           <input type="range" id="sliceSlider" min="0" max="200" value="200">
         </div>
       </div>
+
+      <!-- Bottom Horizontal Bubble Filter Slider -->
+      <div class="bubble-slider-container">
+        <div class="bubble-slider-label">Visible Bubbles:</div>
+        <input type="range" id="bubbleVisibleSlider" min="0" max="0" value="0" class="bubble-horizontal-slider">
+        <input type="number" id="bubbleVisibleInput" min="0" max="0" value="0" class="bubble-count-box">
+      </div>
+
+      <!-- Bubble Hover Tooltip Pop-up -->
+      <div id="bubbleTooltip" class="bubble-tooltip"></div>
 
       <!-- Layer Settings Modal -->
     </div>

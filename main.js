@@ -3,8 +3,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
 // Slicer & Bubble Generator
-import { setupSlicer, getModelHeight, updateSliceSettings, getCurrentMesh, getOriginalMesh, getClippingPlanes, setSliceTarget, setTargetGeometry, restoreOriginalGeometry, setGhostModelOpacity, setBaseMaterialColor, setBubbleData, visualizationConfig } from './src/slicer_v2.js';
+import { setupSlicer, getModelHeight, updateSliceSettings, getCurrentMesh, getOriginalMesh, getClippingPlanes, setSliceTarget, setTargetGeometry, restoreOriginalGeometry, setGhostModelOpacity, setBaseMaterialColor, setBubbleData, visualizationConfig, setShadingMode, setShininess, setSpecularColor } from './src/slicer_v2.js';
 import { BubbleGenerator } from './src/bubble_generator.js';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Post-processing for Ambient Occlusion
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -20,7 +21,11 @@ const AppState = {
     ambientLight: 0.5,
     modelLight: 1.0,
     bgBrightness: 10,
-    modelColor: '#ffffff'
+    modelColor: '#ffffff',
+    shadingMode: 'flat',
+    shininess: 30,
+    specularColor: '#111111',
+    castShadows: true
   },
   slicer: {
     layerCount: 1,
@@ -38,7 +43,8 @@ const AppState = {
     overlapH: 0,
     baseFlattenPercent: 50,
     arrangement: 'grid',
-    sizeMode: 'uniform'
+    sizeMode: 'uniform',
+    visibleCount: 0
   },
   advanced: {
     shellDepthMultiplier: 1.0,
@@ -54,12 +60,21 @@ const AppState = {
   visualization: {
     mode: 'spheres',
     heatmap: 'none',
-    heatmapPalette: 'jet',
-    ao: 'none',
+    heatmapPalette: 'coolwarm',
     densityRadius: 1.5,
-    centerSize: 0.10
+    centerSize: 0.10,
+    ao: 0
   }
 };
+
+// --- BUBBLE CACHE & MODULAR EXPORTS ---
+let currentGeneratedBubbles = [];
+let currentVisibleBubbles = [];
+
+export function getSelectedBubbles() {
+  return currentGeneratedBubbles.slice(0, AppState.bubble.visibleCount);
+}
+window.getSelectedBubbles = getSelectedBubbles;
 
 // Helper to update state is no longer needed; AppState is passed directly.
 
@@ -86,6 +101,8 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.localClippingEnabled = true;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 app.appendChild(renderer.domElement);
 
 // Controls
@@ -93,13 +110,36 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
+// Shadow Ground Plane
+const shadowPlaneGeo = new THREE.PlaneGeometry(100, 100);
+const shadowPlaneMat = new THREE.ShadowMaterial({ opacity: 0.35 });
+const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+shadowPlane.receiveShadow = true;
+shadowPlane.position.z = -0.01; // slightly below Z=0 grid to avoid z-fighting
+scene.add(shadowPlane);
+
 // Lights
 const ambientLight = new THREE.AmbientLight(0xffffff, AppState.view.ambientLight);
 scene.add(ambientLight);
 
 const directionalLight = new THREE.DirectionalLight(0xffffff, AppState.view.modelLight);
 directionalLight.position.set(10, 20, 10);
+directionalLight.castShadow = AppState.view.castShadows;
+directionalLight.shadow.mapSize.width = 2048;
+directionalLight.shadow.mapSize.height = 2048;
+directionalLight.shadow.camera.near = 0.5;
+directionalLight.shadow.camera.far = 150;
+directionalLight.shadow.camera.left = -40;
+directionalLight.shadow.camera.right = 40;
+directionalLight.shadow.camera.top = 40;
+directionalLight.shadow.camera.bottom = -40;
+directionalLight.shadow.bias = -0.0005;
 scene.add(directionalLight);
+
+// Secondary Soft Fill Light (Rim Light)
+const fillLight = new THREE.DirectionalLight(0xaaccff, AppState.view.modelLight * 0.4);
+fillLight.position.set(-15, -20, -10);
+scene.add(fillLight);
 
 // Light transform controls
 const lightTransformControl = new TransformControls(camera, renderer.domElement);
@@ -174,6 +214,108 @@ const counter = document.getElementById('sliceCounter');
 if (slider && counter) {
   slider.addEventListener('input', (e) => {
     counter.textContent = `Slice ${e.target.value}/${slider.max}`;
+  });
+}
+
+// --- Bottom Bubble Visible Slider & Input Logic ---
+const bubbleVisSlider = document.getElementById('bubbleVisibleSlider');
+const bubbleVisInput = document.getElementById('bubbleVisibleInput');
+
+function updateBubbleVisCount(value, triggerRender = true) {
+  let val = parseInt(value);
+  if (isNaN(val)) val = 0;
+  
+  const maxVal = currentGeneratedBubbles.length;
+  val = Math.max(0, Math.min(maxVal, val));
+  
+  AppState.bubble.visibleCount = val;
+  
+  if (bubbleVisSlider && parseInt(bubbleVisSlider.value) !== val) {
+    bubbleVisSlider.value = val;
+  }
+  if (bubbleVisInput && parseInt(bubbleVisInput.value) !== val) {
+    bubbleVisInput.value = val;
+  }
+  
+  if (triggerRender) {
+    updateBubbleView(false);
+  }
+}
+
+if (bubbleVisSlider) {
+  bubbleVisSlider.addEventListener('input', (e) => {
+    updateBubbleVisCount(e.target.value, true);
+  });
+}
+
+if (bubbleVisInput) {
+  bubbleVisInput.addEventListener('input', (e) => {
+    updateBubbleVisCount(e.target.value, true);
+  });
+  bubbleVisInput.addEventListener('change', (e) => {
+    updateBubbleVisCount(e.target.value, true);
+  });
+}
+
+// --- Bubble Hover Tooltip Logic ---
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const tooltip = document.getElementById('bubbleTooltip');
+
+function onMouseMove(event) {
+  if (!tooltip || !renderer || !camera) return;
+  
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  
+  raycaster.setFromCamera(mouse, camera);
+  
+  const currentMesh = getCurrentMesh();
+  const intersects = [];
+  if (currentMesh) {
+    if (currentMesh.isGroup) {
+      raycaster.intersectObjects(currentMesh.children, true, intersects);
+    } else {
+      raycaster.intersectObject(currentMesh, true, intersects);
+    }
+  }
+  
+  if (intersects.length > 0) {
+    const intersect = intersects[0];
+    let b = null;
+    
+    if (intersect.object.isInstancedMesh) {
+      const list = intersect.object.userData.bubblesList;
+      if (list && intersect.instanceId !== undefined) {
+        b = list[intersect.instanceId];
+      }
+    } else if (intersect.object.isMesh && intersect.object.geometry && intersect.object.geometry.userData) {
+      const indicesPerSphere = intersect.object.geometry.userData.indicesPerSphere;
+      if (indicesPerSphere && intersect.faceIndex !== undefined) {
+        const bubbleIdx = Math.floor((intersect.faceIndex * 3) / indicesPerSphere);
+        b = currentVisibleBubbles[bubbleIdx];
+      }
+    }
+    
+    if (b) {
+      const x = (b.bottomToTopIndex !== undefined ? b.bottomToTopIndex : 0) + 1;
+      const n = currentGeneratedBubbles.length;
+      tooltip.textContent = `bubble number ${x}/${n}`;
+      tooltip.style.left = (event.clientX + 15) + 'px';
+      tooltip.style.top = (event.clientY + 15) + 'px';
+      tooltip.style.display = 'block';
+      return;
+    }
+  }
+  
+  tooltip.style.display = 'none';
+}
+
+if (renderer && renderer.domElement) {
+  renderer.domElement.addEventListener('mousemove', onMouseMove);
+  renderer.domElement.addEventListener('mouseleave', () => {
+    if (tooltip) tooltip.style.display = 'none';
   });
 }
 
@@ -261,6 +403,7 @@ if (modelLightSlider) {
   modelLightSlider.addEventListener('input', (e) => {
     AppState.view.modelLight = parseFloat(e.target.value);
     directionalLight.intensity = AppState.view.modelLight;
+    fillLight.intensity = AppState.view.modelLight * 0.4;
   });
 }
 
@@ -293,6 +436,46 @@ if (modelColorInput) {
     setBaseMaterialColor(AppState.view.modelColor);
   });
 }
+
+const castShadowsToggle = document.getElementById('castShadowsToggle');
+if (castShadowsToggle) {
+  castShadowsToggle.addEventListener('change', (e) => {
+    AppState.view.castShadows = e.target.checked;
+    directionalLight.castShadow = AppState.view.castShadows;
+  });
+}
+
+const shadingModeSelect = document.getElementById('shadingModeSelect');
+if (shadingModeSelect) {
+  shadingModeSelect.addEventListener('change', (e) => {
+    AppState.view.shadingMode = e.target.value;
+    setShadingMode(AppState.view.shadingMode);
+    updateBubbleView();
+  });
+}
+
+const specularColorInput = document.getElementById('specularColorInput');
+if (specularColorInput) {
+  specularColorInput.addEventListener('input', (e) => {
+    AppState.view.specularColor = e.target.value;
+    setSpecularColor(AppState.view.specularColor);
+    updateBubbleView();
+  });
+}
+
+bindState(
+  document.getElementById('shininessSlider'),
+  document.getElementById('shininessInput'),
+  'view',
+  'shininess',
+  false,
+  0,
+  100,
+  () => {
+    setShininess(AppState.view.shininess);
+    updateBubbleView();
+  }
+);
 
 // --- Accordion UI Logic ---
 document.querySelectorAll('.accordion-header').forEach(button => {
@@ -341,6 +524,7 @@ bindState(document.getElementById('gradientExponentSlider'), document.getElement
 // Visualization specific bindState calls
 bindState(document.getElementById('visDensityRadiusSlider'), document.getElementById('visDensityRadiusInput'), 'visualization', 'densityRadius', true, 0.5, 5.0, updateBubbleView);
 bindState(document.getElementById('visCenterSizeSlider'), document.getElementById('visCenterSizeInput'), 'visualization', 'centerSize', true, 0.02, 0.5, updateBubbleView);
+bindState(document.getElementById('visAOSlider'), document.getElementById('visAOInput'), 'visualization', 'ao', false, 0, 100, updateBubbleView);
 
 const advMaxLayersInput = document.getElementById('advMaxLayersInput');
 if (advMaxLayersInput) {
@@ -471,6 +655,7 @@ if (bubbleModeToggle) {
   });
 }
 
+
 function restoreSizeControls(mode) {
   if (mode === 'uniform') {
     if (uniformSizeControl) uniformSizeControl.style.display = 'block';
@@ -531,7 +716,7 @@ function updateControlVisibility() {
     if (sizeModeGroup) sizeModeGroup.style.display = 'block';
     
     restoreSizeControls(sizeMode);
-  } else if (arrangement === 'grid' || arrangement === 'oranges') {
+  } else if (arrangement === 'grid' || arrangement === 'oranges' || arrangement === 'hexagons') {
     if (poissonRadiusControl) poissonRadiusControl.style.display = 'none';
     if (lloydIterationsControl) lloydIterationsControl.style.display = 'none';
     if (jitterControl) jitterControl.style.display = 'block';
@@ -616,7 +801,7 @@ function resetBubbleSettings() {
     mode: 'spheres',
     heatmap: 'none',
     heatmapPalette: 'jet',
-    ao: 'none',
+    ao: 0,
     densityRadius: 1.5,
     centerSize: 0.10
   };
@@ -624,18 +809,40 @@ function resetBubbleSettings() {
   const visRenderMode = document.getElementById('visRenderMode');
   const visHeatmapMode = document.getElementById('visHeatmapMode');
   const visPalette = document.getElementById('visPalette');
-  const visAO = document.getElementById('visAO');
   
   if (visRenderMode) visRenderMode.value = AppState.visualization.mode;
   if (visHeatmapMode) visHeatmapMode.value = AppState.visualization.heatmap;
   if (visPalette) visPalette.value = AppState.visualization.heatmapPalette;
-  if (visAO) visAO.value = AppState.visualization.ao;
   
   visualizationConfig.mode = AppState.visualization.mode; // Sync with slicer
   visualizationConfig.heatmap = AppState.visualization.heatmap;
   
   setUI('visDensityRadiusSlider', 'visDensityRadiusInput', AppState.visualization.densityRadius, true);
   setUI('visCenterSizeSlider', 'visCenterSizeInput', AppState.visualization.centerSize, true);
+  setUI('visAOSlider', 'visAOInput', AppState.visualization.ao, false);
+  
+  // Reset shading and shadow settings
+  AppState.view.shadingMode = 'flat';
+  AppState.view.shininess = 30;
+  AppState.view.specularColor = '#111111';
+  AppState.view.castShadows = true;
+
+  const shadingModeSelect = document.getElementById('shadingModeSelect');
+  if (shadingModeSelect) shadingModeSelect.value = AppState.view.shadingMode;
+  
+  const specularColorInput = document.getElementById('specularColorInput');
+  if (specularColorInput) specularColorInput.value = AppState.view.specularColor;
+
+  const castShadowsToggle = document.getElementById('castShadowsToggle');
+  if (castShadowsToggle) castShadowsToggle.checked = AppState.view.castShadows;
+  
+  setUI('shininessSlider', 'shininessInput', AppState.view.shininess, false);
+
+  // Sync with slicer and 3D scene
+  setShadingMode(AppState.view.shadingMode);
+  setShininess(AppState.view.shininess);
+  setSpecularColor(AppState.view.specularColor);
+  directionalLight.castShadow = AppState.view.castShadows;
   
   updateVisControlVisibility();
   updateControlVisibility();
@@ -666,14 +873,6 @@ const visPalette = document.getElementById('visPalette');
 if (visPalette) {
   visPalette.addEventListener('change', (e) => {
     AppState.visualization.heatmapPalette = e.target.value;
-    updateBubbleView();
-  });
-}
-
-const visAO = document.getElementById('visAO');
-if (visAO) {
-  visAO.addEventListener('change', (e) => {
-    AppState.visualization.ao = e.target.value;
     updateBubbleView();
   });
 }
@@ -824,7 +1023,7 @@ function computeDensities(bubbles, searchRadius) {
 function computeAOFactors(bubbles, aoSetting) {
   const aoFactors = new Float32Array(bubbles.length);
   aoFactors.fill(1.0);
-  if (bubbles.length === 0 || aoSetting === 'none') return aoFactors;
+  if (bubbles.length === 0 || !aoSetting || aoSetting <= 0) return aoFactors;
 
   const radius = AppState.bubble.radius;
   const overlapFactorH = 1 - (AppState.bubble.overlapH / 100);
@@ -843,9 +1042,7 @@ function computeAOFactors(bubbles, aoSetting) {
   }
   if (maxD === 0) maxD = 1;
 
-  let intensity = 0.5;
-  if (aoSetting === 'low') intensity = 0.3;
-  if (aoSetting === 'high') intensity = 0.85;
+  const intensity = aoSetting / 100;
 
   for (let i = 0; i < bubbles.length; i++) {
     const t = densities[i] / maxD;
@@ -913,9 +1110,7 @@ function applyVertexAO(geometry, bubbles, aoSetting, heatmapMode, paletteName) {
   const count = posAttr.count;
   const colors = new Float32Array(count * 3);
   
-  let intensity = 0.5;
-  if (aoSetting === 'low') intensity = 0.3;
-  if (aoSetting === 'high') intensity = 0.85;
+  const intensity = (aoSetting && typeof aoSetting === 'number') ? (aoSetting / 100) : 0.0;
   
   let zMin = Infinity, zMax = -Infinity;
   let maxRad = 0;
@@ -993,7 +1188,7 @@ function applyVertexAO(geometry, bubbles, aoSetting, heatmapMode, paletteName) {
         baseCol = getHeatmapColor(t, paletteName);
       }
       
-      if (aoSetting !== 'none') {
+      if (intensity > 0) {
         const neighbors = bubbleNeighbors[closestBubbleIdx];
         let totalOcc = 0;
         
@@ -1068,11 +1263,11 @@ function createInstancedBubbles(bubbles, mode, heatmapMode, paletteName, searchR
   
   const solidMaterial = new THREE.MeshPhongMaterial({
     color: 0xffffff,
-    emissive: 0x222222,
-    specular: 0x111111,
-    shininess: 30,
+    emissive: 0x000000,
+    specular: new THREE.Color(AppState.view.specularColor || '#111111'),
+    shininess: AppState.view.shininess !== undefined ? AppState.view.shininess : 30,
     side: THREE.DoubleSide,
-    flatShading: true,
+    flatShading: AppState.view.shadingMode === 'flat',
     clippingPlanes: [clippingPlanes[0]],
     clipShadows: true
   });
@@ -1185,6 +1380,9 @@ function createInstancedBubbles(bubbles, mode, heatmapMode, paletteName, searchR
     bottomGeo.rotateX(Math.PI / 2);
     
     const bottomSolid = new THREE.InstancedMesh(bottomGeo, solidMaterial, bottomBubbles.length);
+    bottomSolid.castShadow = true;
+    bottomSolid.receiveShadow = true;
+    bottomSolid.userData.bubblesList = bottomBubbles;
     const bottomGhost = new THREE.InstancedMesh(bottomGeo, ghostMaterial, bottomBubbles.length);
     
     populateInstance(bottomSolid, bottomBubbles, true);
@@ -1196,6 +1394,9 @@ function createInstancedBubbles(bubbles, mode, heatmapMode, paletteName, searchR
   
   if (normalBubbles.length > 0) {
     const normalSolid = new THREE.InstancedMesh(geometry, solidMaterial, normalBubbles.length);
+    normalSolid.castShadow = true;
+    normalSolid.receiveShadow = true;
+    normalSolid.userData.bubblesList = normalBubbles;
     const normalGhost = new THREE.InstancedMesh(geometry, ghostMaterial, normalBubbles.length);
     
     populateInstance(normalSolid, normalBubbles, false);
@@ -1338,7 +1539,43 @@ function createVoronoiWireframe(bubbles, heatmapMode, paletteName, searchRadius,
   return { solid: solidLine, ghost: ghostLine };
 }
 
-function updateBubbleView() {
+function buildMergedSpheresGeometry(visibleBubbles, config, advanced) {
+  const geometries = [];
+  
+  let widthSegments = 16, heightSegments = 12;
+  if (advanced.resolution === 'low') {
+    widthSegments = 8; heightSegments = 6;
+  } else if (advanced.resolution === 'high') {
+    widthSegments = 32; heightSegments = 24;
+  }
+  
+  const thetaLength = Math.PI * (1 - (Math.max(0, Math.min(100, config.baseFlattenPercent)) / 100));
+  
+  for (const b of visibleBubbles) {
+    const matrix = new THREE.Matrix4().makeTranslation(b.x, b.y, b.z);
+    let geo;
+    if (b.layerIndex === 0) {
+      geo = new THREE.SphereGeometry(b.radius, widthSegments, heightSegments, 0, Math.PI * 2, 0, thetaLength);
+    } else {
+      geo = new THREE.SphereGeometry(b.radius, widthSegments, heightSegments);
+    }
+    geo.rotateX(Math.PI / 2);
+    geometries.push(geo.clone().applyMatrix4(matrix));
+  }
+  
+  if (geometries.length > 0) {
+    const tempGeo = new THREE.SphereGeometry(1, widthSegments, heightSegments);
+    const indicesPerSphere = tempGeo.index ? tempGeo.index.count : tempGeo.attributes.position.count;
+    tempGeo.dispose();
+    
+    const mergedGeo = BufferGeometryUtils.mergeGeometries(geometries);
+    mergedGeo.userData = { indicesPerSphere };
+    return mergedGeo;
+  }
+  return null;
+}
+
+function updateBubbleView(regenerateBubbles = true) {
   const originalMesh = getOriginalMesh();
   if (!originalMesh) {
     console.warn("Bubble Mode: No original mesh available.");
@@ -1347,32 +1584,80 @@ function updateBubbleView() {
 
   if (AppState.bubble.enabled) {
     const config = AppState.bubble;
-    let radius = config.radius;
-    let minRadius = config.radius;
-    let maxRadius = config.radius;
     
-    if (config.sizeMode !== 'uniform') {
-        minRadius = config.minRadius;
-        maxRadius = config.maxRadius;
-        radius = (minRadius + maxRadius) / 2;
+    if (regenerateBubbles) {
+      let radius = config.radius;
+      let minRadius = config.radius;
+      let maxRadius = config.radius;
+      
+      if (config.sizeMode !== 'uniform') {
+          minRadius = config.minRadius;
+          maxRadius = config.maxRadius;
+          radius = (minRadius + maxRadius) / 2;
+      }
+
+      console.log(`[MAIN] Refresh clicked! size=${radius}, min=${minRadius}, max=${maxRadius}, mode=${config.sizeMode}, overlapV=${config.overlapV}, overlapH=${config.overlapH}, flatten=${config.baseFlattenPercent}, arr=${config.arrangement}`);
+
+      // Generate Bubbles from the ORIGINAL geometry using AppState
+      const bubbleGeo = bubbleGenerator.generateGeometry(
+        originalMesh, 
+        AppState.bubble,
+        AppState.advanced
+      );
+
+      if (bubbleGeo) {
+        // Sort bubbles by Z height (bottom to top)
+        const rawBubbles = bubbleGenerator.bubbles || [];
+        currentGeneratedBubbles = [...rawBubbles].sort((a, b) => a.z - b.z);
+        
+        // Assign indices from bottom to top
+        currentGeneratedBubbles.forEach((b, idx) => {
+          b.bottomToTopIndex = idx;
+        });
+        
+        // Update slider and input bounds
+        const N = currentGeneratedBubbles.length;
+        AppState.bubble.visibleCount = N;
+        
+        const bubbleVisSlider = document.getElementById('bubbleVisibleSlider');
+        const bubbleVisInput = document.getElementById('bubbleVisibleInput');
+        if (bubbleVisSlider) {
+          bubbleVisSlider.max = N;
+          bubbleVisSlider.value = N;
+        }
+        if (bubbleVisInput) {
+          bubbleVisInput.max = N;
+          bubbleVisInput.value = N;
+        }
+      } else {
+        currentGeneratedBubbles = [];
+        AppState.bubble.visibleCount = 0;
+        const bubbleVisSlider = document.getElementById('bubbleVisibleSlider');
+        const bubbleVisInput = document.getElementById('bubbleVisibleInput');
+        if (bubbleVisSlider) {
+          bubbleVisSlider.max = 0;
+          bubbleVisSlider.value = 0;
+        }
+        if (bubbleVisInput) {
+          bubbleVisInput.max = 0;
+          bubbleVisInput.value = 0;
+        }
+      }
     }
 
-    console.log(`[MAIN] Refresh clicked! size=${radius}, min=${minRadius}, max=${maxRadius}, mode=${config.sizeMode}, overlapV=${config.overlapV}, overlapH=${config.overlapH}, flatten=${config.baseFlattenPercent}, arr=${config.arrangement}`);
-
-    // Generate Bubbles from the ORIGINAL geometry using AppState
-    const bubbleGeo = bubbleGenerator.generateGeometry(
-      originalMesh, 
-      AppState.bubble,
-      AppState.advanced
-    );
-
-    if (bubbleGeo) {
-      const bubbles = bubbleGenerator.bubbles || [];
-      // Set global indices for fast lookup
-      for (let i = 0; i < bubbles.length; i++) {
-        bubbles[i].globalIndex = i;
+    const bubblesCount = currentGeneratedBubbles.length;
+    if (bubblesCount > 0) {
+      // Get the subset of bubbles up to visibleCount
+      const V = AppState.bubble.visibleCount;
+      const visibleBubbles = currentGeneratedBubbles.slice(0, V);
+      currentVisibleBubbles = visibleBubbles;
+      
+      // Update globalIndex for visibleBubbles to map index lookup arrays correctly
+      for (let i = 0; i < visibleBubbles.length; i++) {
+        visibleBubbles[i].globalIndex = i;
       }
-      setBubbleData(bubbles);
+      
+      setBubbleData(visibleBubbles);
 
       const visMode = AppState.visualization.mode;
       const heatmapMode = AppState.visualization.heatmap;
@@ -1381,28 +1666,34 @@ function updateBubbleView() {
       const centerSize = AppState.visualization.centerSize;
       const aoSetting = AppState.visualization.ao;
 
-      // Compute baked AO factors if active (for flat instanced/wire modes)
-      const aoFactors = (aoSetting !== 'none') ? computeAOFactors(bubbles, aoSetting) : null;
+      // Compute baked AO factors if active (for flat instanced/wire modes) on the visible subset
+      const aoFactors = (aoSetting > 0) ? computeAOFactors(visibleBubbles, aoSetting) : null;
 
       if (visMode === 'spheres') {
-        if (heatmapMode === 'none' && aoSetting === 'none') {
-          if (bubbleGeo.attributes.color) {
-            bubbleGeo.removeAttribute('color');
+        // Build spheres geometry from only the visible subset
+        const bubbleGeo = buildMergedSpheresGeometry(visibleBubbles, config, AppState.advanced);
+        if (bubbleGeo) {
+          if (heatmapMode === 'none' && (!aoSetting || aoSetting <= 0)) {
+            if (bubbleGeo.attributes.color) {
+              bubbleGeo.removeAttribute('color');
+            }
+            setTargetGeometry(bubbleGeo, scene, false);
+          } else {
+            applyVertexAO(bubbleGeo, visibleBubbles, aoSetting, heatmapMode, paletteName);
+            setTargetGeometry(bubbleGeo, scene, false);
           }
-          setTargetGeometry(bubbleGeo, scene, false);
         } else {
-          applyVertexAO(bubbleGeo, bubbles, aoSetting, heatmapMode, paletteName);
-          setTargetGeometry(bubbleGeo, scene, false);
+          setTargetGeometry(null, scene, false);
         }
       } else if (visMode === 'voronoi') {
-        const { solid, ghost } = createVoronoiWireframe(bubbles, heatmapMode, paletteName, densityRadius, aoFactors);
+        const { solid, ghost } = createVoronoiWireframe(visibleBubbles, heatmapMode, paletteName, densityRadius, aoFactors);
         if (solid) {
           setTargetGeometry(solid, scene, false, ghost);
         } else {
           setTargetGeometry(null, scene, false);
         }
       } else {
-        const { solid, ghost } = createInstancedBubbles(bubbles, visMode, heatmapMode, paletteName, densityRadius, centerSize, aoFactors);
+        const { solid, ghost } = createInstancedBubbles(visibleBubbles, visMode, heatmapMode, paletteName, densityRadius, centerSize, aoFactors);
         if (solid) {
           setTargetGeometry(solid, scene, false, ghost);
         } else {
@@ -1410,6 +1701,7 @@ function updateBubbleView() {
         }
       }
     } else {
+      currentVisibleBubbles = [];
       console.warn("Bubble Mode: No geometry generated.");
       setBubbleData(null);
       setTargetGeometry(null, scene, false);
@@ -1417,22 +1709,12 @@ function updateBubbleView() {
   }
 }
 
-// Automatically load a random test model on startup
+// Automatically load the default cube test model on startup
 setTimeout(() => {
-  const demoModels = [
-    "./models/cube_simple.obj", 
-    "./models/sphere_smooth.obj",
-    "./models/cylinder.obj",
-    "./models/cone_smooth.obj",
-    "./models/pyramid.obj",
-    "./models/octahedron.obj",
-    "./models/tetrahedron.obj",
-    "./models/torus_complex.obj"
-  ];
-  const randomModel = demoModels[Math.floor(Math.random() * demoModels.length)];
+  const defaultModel = "./models/cube_simple.obj";
   
   if (demoModelSelector) {
-    demoModelSelector.value = randomModel;
+    demoModelSelector.value = defaultModel;
     demoModelSelector.dispatchEvent(new Event('change'));
   }
   updateControlVisibility();

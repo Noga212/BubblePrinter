@@ -224,7 +224,7 @@ export function distanceToContours(x, y, contours) {
 }
 
 /**
- * Returns true hexagonal close packing points.
+ * Returns true hexagonal close packing points (ABCABC Face-Centered Cubic).
  */
 export function getOrangesPointsInContours(contours, box, spacing, layerIndex) {
     const points = [];
@@ -237,6 +237,49 @@ export function getOrangesPointsInContours(contours, box, spacing, layerIndex) {
     const startM = Math.floor((box.min.y - rowSpacing) / rowSpacing);
     const endM = Math.ceil((box.max.y + rowSpacing) / rowSpacing);
 
+    // ABCABC Stacking
+    const k = layerIndex % 3;
+    let layerOffsetX = 0;
+    let layerOffsetY = 0;
+    if (k === 1) {
+        layerOffsetX = spacing / 2;
+        layerOffsetY = rowSpacing / 3;
+    } else if (k === 2) {
+        layerOffsetX = 0;
+        layerOffsetY = rowSpacing * 2 / 3;
+    }
+
+    for (let m = startM; m <= endM; m++) {
+        const y = m * rowSpacing + (rowSpacing / 2) + layerOffsetY;
+        // Alternating rows shift by half spacing
+        const rowOffsetX = (m % 2 !== 0) ? spacing / 2 : 0;
+        
+        for (let n = startN; n <= endN; n++) {
+            const x = n * spacing + (spacing / 2) + rowOffsetX + layerOffsetX;
+
+            if (isPointInContours(x, y, contours)) {
+                points.push({ x, y });
+            }
+        }
+    }
+    return points;
+}
+
+/**
+ * Returns hexagonal close packing points (ABABAB Hexagonal Close Packing).
+ */
+export function getHexagonsPointsInContours(contours, box, spacing, layerIndex) {
+    const points = [];
+    // True hex packing row spacing
+    const rowSpacing = spacing * Math.sqrt(3) / 2;
+
+    const startN = Math.floor((box.min.x - spacing) / spacing);
+    const endN = Math.ceil((box.max.x + spacing) / spacing);
+
+    const startM = Math.floor((box.min.y - rowSpacing) / rowSpacing);
+    const endM = Math.ceil((box.max.y + rowSpacing) / rowSpacing);
+
+    // ABABAB Stacking
     const layerOffsetX = (layerIndex % 2 !== 0) ? spacing / 2 : 0;
     const layerOffsetY = (layerIndex % 2 !== 0) ? rowSpacing / 3 : 0;
 

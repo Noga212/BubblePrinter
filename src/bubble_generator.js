@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getSliceContours, distanceToContours, getOrangesPointsInContours, getRejectionSamplingPointsInContours, getGridPointsInContours, isPointInContours, getPoissonPointsInContours, applyLloydRelaxation, apply3DLloydRelaxation } from './geometry_utils_v2.js';
+import { getSliceContours, distanceToContours, getOrangesPointsInContours, getHexagonsPointsInContours, getRejectionSamplingPointsInContours, getGridPointsInContours, isPointInContours, getPoissonPointsInContours, applyLloydRelaxation, apply3DLloydRelaxation } from './geometry_utils_v2.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
 export class BubbleGenerator {
@@ -108,6 +108,8 @@ export class BubbleGenerator {
 
                 if (config.arrangement === 'oranges') {
                     points = getOrangesPointsInContours(contours, box, horizontalStep, layerIndex);
+                } else if (config.arrangement === 'hexagons') {
+                    points = getHexagonsPointsInContours(contours, box, horizontalStep, layerIndex);
                 } else if (config.arrangement === 'rejection') {
                     points = getRejectionSamplingPointsInContours(contours, box, horizontalStep, layerIndex);
                 } else if (config.arrangement === 'poisson') {
@@ -124,7 +126,7 @@ export class BubbleGenerator {
                 }
 
                 // Apply Jitter Modifier if applicable
-                if ((config.arrangement === 'grid' || config.arrangement === 'oranges') && config.jitterPercent > 0) {
+                if ((config.arrangement === 'grid' || config.arrangement === 'oranges' || config.arrangement === 'hexagons') && config.jitterPercent > 0) {
                     const maxDisplacement = (config.jitterPercent / 100) * currentLayerRadius;
                     let jitterSeed = layerIndex * 9997 + 13;
                     const jRand = () => {
@@ -171,7 +173,7 @@ export class BubbleGenerator {
             }
 
             let layerStep = (currentLayerRadius * 2) * overlapFactorV;
-            if (config.arrangement === 'oranges') {
+            if (config.arrangement === 'oranges' || config.arrangement === 'hexagons') {
                 layerStep = (currentLayerRadius * 2) * Math.sqrt(2/3) * overlapFactorV;
             }
             
@@ -264,6 +266,8 @@ export class BubbleGenerator {
             if (firstLayerContours.length > 0) {
                 if (config.arrangement === 'oranges') {
                     initialPoints = getOrangesPointsInContours(firstLayerContours, box, seedSpacing, 0);
+                } else if (config.arrangement === 'hexagons') {
+                    initialPoints = getHexagonsPointsInContours(firstLayerContours, box, seedSpacing, 0);
                 } else if (config.arrangement === 'rejection') {
                     initialPoints = getRejectionSamplingPointsInContours(firstLayerContours, box, seedSpacing, 0);
                 } else if (config.arrangement === 'poisson') {
@@ -328,11 +332,34 @@ export class BubbleGenerator {
                     { x: 0, y: 0, z: 1 }, { x: 0, y: 0, z: -1 }
                 ]);
             } else if (config.arrangement === 'oranges') {
-                const s2 = Math.SQRT1_2;
+                const hy1 = Math.sqrt(3) / 2;
+                const hy2 = Math.sqrt(3) / 6;
+                const hy3 = Math.sqrt(3) / 3;
+                const hz = Math.sqrt(2 / 3);
                 directions = shuffle([
-                    { x: s2, y: s2, z: 0 }, { x: s2, y: -s2, z: 0 }, { x: -s2, y: s2, z: 0 }, { x: -s2, y: -s2, z: 0 },
-                    { x: s2, y: 0, z: s2 }, { x: s2, y: 0, z: -s2 }, { x: -s2, y: 0, z: s2 }, { x: -s2, y: 0, z: -s2 },
-                    { x: 0, y: s2, z: s2 }, { x: 0, y: s2, z: -s2 }, { x: 0, y: -s2, z: s2 }, { x: 0, y: -s2, z: -s2 }
+                    // In-plane neighbors
+                    { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 },
+                    { x: 0.5, y: hy1, z: 0 }, { x: -0.5, y: hy1, z: 0 },
+                    { x: 0.5, y: -hy1, z: 0 }, { x: -0.5, y: -hy1, z: 0 },
+                    // Lower neighbors (valleys)
+                    { x: 0.5, y: hy2, z: -hz }, { x: -0.5, y: hy2, z: -hz }, { x: 0, y: -hy3, z: -hz },
+                    // Upper neighbors (C placement for FCC)
+                    { x: 0.5, y: -hy2, z: hz }, { x: -0.5, y: -hy2, z: hz }, { x: 0, y: hy3, z: hz }
+                ]);
+            } else if (config.arrangement === 'hexagons') {
+                const hy1 = Math.sqrt(3) / 2;
+                const hy2 = Math.sqrt(3) / 6;
+                const hy3 = Math.sqrt(3) / 3;
+                const hz = Math.sqrt(2 / 3);
+                directions = shuffle([
+                    // In-plane neighbors
+                    { x: 1, y: 0, z: 0 }, { x: -1, y: 0, z: 0 },
+                    { x: 0.5, y: hy1, z: 0 }, { x: -0.5, y: hy1, z: 0 },
+                    { x: 0.5, y: -hy1, z: 0 }, { x: -0.5, y: -hy1, z: 0 },
+                    // Lower neighbors (valleys)
+                    { x: 0.5, y: hy2, z: -hz }, { x: -0.5, y: hy2, z: -hz }, { x: 0, y: -hy3, z: -hz },
+                    // Upper neighbors (A placement for HCP - same XY offsets as lower plane)
+                    { x: 0.5, y: hy2, z: hz }, { x: -0.5, y: hy2, z: hz }, { x: 0, y: -hy3, z: hz }
                 ]);
             } else {
                 for (let i = 0; i < 30; i++) {
@@ -422,7 +449,7 @@ export class BubbleGenerator {
         }
 
         // Apply 3D Jitter if applicable
-        if ((config.arrangement === 'grid' || config.arrangement === 'oranges') && config.jitterPercent > 0) {
+        if ((config.arrangement === 'grid' || config.arrangement === 'oranges' || config.arrangement === 'hexagons') && config.jitterPercent > 0) {
             let jitterSeed = 54321;
             const jRand = () => {
                 let x = Math.sin(jitterSeed++) * 10000;
