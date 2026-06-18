@@ -704,3 +704,36 @@ input:checked+.slider:before {
     display: none;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
 }
+
+/* Print Options Dropdown & Modal Styles */
+.dropdown-toggle::after {
+    content: " ▾";
+    font-size: 0.75rem;
+}
+
+.dropdown-menu a {
+    display: block;
+    color: var(--text-primary);
+    padding: 8px 16px;
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: background 0.2s, color 0.2s;
+    cursor: pointer;
+}
+
+.dropdown-menu a:hover {
+    background: rgba(77, 144, 254, 0.15) !important;
+    color: var(--accent-cyan) !important;
+}
+
+.dropdown-menu a:first-child {
+    border-radius: 3px 3px 0 0;
+}
+
+.dropdown-menu a:last-child {
+    border-radius: 0 0 3px 3px;
+}
+
+.close-modal:hover {
+    color: var(--accent-cyan) !important;
+}

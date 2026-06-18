@@ -6,6 +6,7 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { setupSlicer, getModelHeight, updateSliceSettings, getCurrentMesh, getOriginalMesh, getClippingPlanes, setSliceTarget, setTargetGeometry, restoreOriginalGeometry, setGhostModelOpacity, setBaseMaterialColor, setBubbleData, visualizationConfig, setShadingMode, setShininess, setSpecularColor } from './src/slicer_v2.js';
 import { BubbleGenerator } from './src/bubble_generator.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
 
 // Post-processing for Ambient Occlusion
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -70,6 +71,7 @@ const AppState = {
 // --- BUBBLE CACHE & MODULAR EXPORTS ---
 let currentGeneratedBubbles = [];
 let currentVisibleBubbles = [];
+let loadedModelName = "cube_simple";
 
 export function getSelectedBubbles() {
   return currentGeneratedBubbles.slice(0, AppState.bubble.visibleCount);
@@ -180,6 +182,10 @@ demoModelSelector.addEventListener('change', (e) => {
   const modelUrl = e.target.value;
   if (!modelUrl) return;
 
+  const parts = modelUrl.split('/');
+  const filename = parts[parts.length - 1];
+  loadedModelName = filename.replace('.obj', '');
+
   resetBubbleSettings();
   setSliceTarget(null);
   
@@ -199,6 +205,7 @@ document.getElementById('uploadBtn').addEventListener('click', () => {
 document.getElementById('fileInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (file) {
+    loadedModelName = file.name.replace('.obj', '');
     setSliceTarget(null);
     setupSlicer(URL.createObjectURL(file), scene, camera, controls, () => {
       if (AppState.bubble.enabled) {
@@ -1799,4 +1806,177 @@ const makeElementDraggable = (elmnt) => {
 const previewPanel = document.querySelector('.slice-preview-panel');
 if (previewPanel) {
   makeElementDraggable(previewPanel);
+}
+
+// --- PRINT/EXPORT OPTIONS AND G-CODE LOGIC ---
+
+// Print Options Dropdown Toggle
+const printOptionsBtn = document.getElementById('printOptionsBtn');
+const printOptionsMenu = document.getElementById('printOptionsMenu');
+
+if (printOptionsBtn && printOptionsMenu) {
+  printOptionsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isVisible = printOptionsMenu.style.display === 'block';
+    printOptionsMenu.style.display = isVisible ? 'none' : 'block';
+  });
+
+  // Hide dropdown menu when clicking anywhere else
+  document.addEventListener('click', () => {
+    printOptionsMenu.style.display = 'none';
+  });
+}
+
+// Download OBJ Option
+const downloadObjOpt = document.getElementById('downloadObjOpt');
+if (downloadObjOpt) {
+  downloadObjOpt.addEventListener('click', (e) => {
+    e.preventDefault();
+    exportToOBJ();
+  });
+}
+
+// Export G-code Option (shows Modal)
+const downloadGcodeOpt = document.getElementById('downloadGcodeOpt');
+const gcodeModal = document.getElementById('gcodeModal');
+const closeGcodeModal = document.getElementById('closeGcodeModal');
+const cancelGcodeBtn = document.getElementById('cancelGcodeBtn');
+const generateGcodeBtn = document.getElementById('generateGcodeBtn');
+
+if (downloadGcodeOpt && gcodeModal) {
+  downloadGcodeOpt.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (!AppState.bubble.enabled) {
+      alert("G-code export is only available in Bubble Mode.");
+      return;
+    }
+    const visibleBubbles = getSelectedBubbles();
+    if (visibleBubbles.length === 0) {
+      alert("No visible bubbles to export.");
+      return;
+    }
+    gcodeModal.style.display = 'flex';
+  });
+}
+
+if (closeGcodeModal) {
+  closeGcodeModal.addEventListener('click', () => {
+    gcodeModal.style.display = 'none';
+  });
+}
+
+if (cancelGcodeBtn) {
+  cancelGcodeBtn.addEventListener('click', () => {
+    gcodeModal.style.display = 'none';
+  });
+}
+
+if (gcodeModal) {
+  gcodeModal.addEventListener('click', (e) => {
+    if (e.target === gcodeModal) {
+      gcodeModal.style.display = 'none';
+    }
+  });
+}
+
+if (generateGcodeBtn) {
+  generateGcodeBtn.addEventListener('click', () => {
+    const selectedRef = document.querySelector('input[name="gcodeRef"]:checked').value;
+    exportToGcode(selectedRef);
+    gcodeModal.style.display = 'none';
+  });
+}
+
+function exportToOBJ() {
+  const originalMesh = getOriginalMesh();
+  if (!originalMesh) {
+    alert("No model loaded to export.");
+    return;
+  }
+
+  let exportTarget;
+
+  if (AppState.bubble.enabled) {
+    const visibleBubbles = getSelectedBubbles();
+    if (visibleBubbles.length === 0) {
+      alert("No visible bubbles to export.");
+      return;
+    }
+
+    // Build the full 3D sphere geometry of visible bubbles
+    const bubbleGeo = buildMergedSpheresGeometry(visibleBubbles, AppState.bubble, AppState.advanced);
+    if (!bubbleGeo) {
+      alert("Failed to generate bubble geometry for export.");
+      return;
+    }
+
+    const tempMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    exportTarget = new THREE.Mesh(bubbleGeo, tempMaterial);
+  } else {
+    // Export the original loaded mesh (might be a group or mesh)
+    exportTarget = originalMesh;
+  }
+
+  try {
+    const exporter = new OBJExporter();
+    const result = exporter.parse(exportTarget);
+    
+    // Download the result
+    const blob = new Blob([result], { type: 'text/plain' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    
+    const suffix = AppState.bubble.enabled ? '_bubbles.obj' : '_model.obj';
+    link.download = `${loadedModelName}${suffix}`;
+    link.click();
+    
+    // Cleanup temp mesh
+    if (AppState.bubble.enabled && exportTarget) {
+      exportTarget.geometry.dispose();
+      exportTarget.material.dispose();
+    }
+  } catch (error) {
+    console.error("Failed to export OBJ:", error);
+    alert("An error occurred during OBJ export.");
+  }
+}
+
+function exportToGcode(referenceType) {
+  const visibleBubbles = getSelectedBubbles();
+  if (visibleBubbles.length === 0) {
+    alert("No visible bubbles to export.");
+    return;
+  }
+
+  // Generate G-code content
+  // Each G-code should include the radius (same for all spheres if uniform, but b.radius works for all cases).
+  // Format each bubble coordinate as: G1 X{x} Y{y} Z{z} R{radius}
+  const gcodeLines = [
+    `; BubblePrinter G-code Export`,
+    `; Generated on: ${new Date().toISOString()}`,
+    `; Model Name: ${loadedModelName}`,
+    `; Export Type: ${referenceType === 'top' ? 'Sphere Top (Z + Radius)' : 'Sphere Center (Z)'}`,
+    `; Total Bubbles: ${visibleBubbles.length}`,
+    `;`,
+    `G21 ; Set units to millimeters`,
+    `G90 ; Absolute positioning`,
+    ``
+  ];
+
+  visibleBubbles.forEach((b, idx) => {
+    const x = b.x.toFixed(4);
+    const y = b.y.toFixed(4);
+    const z = (referenceType === 'top' ? b.z + b.radius : b.z).toFixed(4);
+    const r = b.radius.toFixed(4);
+    gcodeLines.push(`G1 X${x} Y${y} Z${z} R${r} ; Bubble #${idx + 1}`);
+  });
+
+  const gcodeText = gcodeLines.join('\n');
+  
+  // Download the Gcode file
+  const blob = new Blob([gcodeText], { type: 'text/plain' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${loadedModelName}_bubbles_${referenceType}.gcode`;
+  link.click();
 }
